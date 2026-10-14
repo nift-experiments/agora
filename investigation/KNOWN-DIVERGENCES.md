@@ -10,4 +10,4 @@
 | Editorial dates | Explicit maintenance workflow | Imported Git-derived dates preserved; named deterministic updates supported. Date metadata changes currently invalidate payload/app state. |
 | Local Python preview | Preview limitation | Generated pages/assets served; deployment redirects and Markdown Accept negotiation belong to preserved hosting rules. |
 
-Final functional, clean-checkout and performance certification is still pending.
+Global clean-checkout corpus certification passes. Separate CN deployment, live external-service certification and inherited unit-suite failures remain qualifications. Benchmark evidence is private; no public promotion is authorized.

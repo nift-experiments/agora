@@ -51,9 +51,10 @@ async function seed() {
   await writeFile(statePath, JSON.stringify({ signature, manifest, frontmatter: Object.fromEntries(Object.entries(metadata).map(([p, v]: [string, any]) => [p, v.frontmatter])) }));
 }
 if (process.argv.includes('--seed')) { await seed(); console.log('[payload-update] seeded derived dependency state'); process.exit(0); }
-const worker = await import('../app/scripts/generate-static-docs-payload.worker.mjs');
+const loadWorker = () => import('../app/scripts/generate-static-docs-payload.worker.mjs');
 async function fallback(reason: string) {
   console.log(`[payload-update] full fallback: ${reason}`);
+  const worker = await loadWorker();
   await worker.generateStaticDocsPayload();
   await seed();
 }
@@ -65,6 +66,7 @@ if (JSON.stringify(keys) !== JSON.stringify(Object.keys(previous.frontmatter).so
 }
 const changed = keys.filter(p => manifest[p] !== previous.manifest[p]);
 if (!changed.length) { console.log('[payload-update] no changed compiled modules'); process.exit(0); }
+const worker = await loadWorker();
 const { source } = await import('../app/src/lib/source.server');
 const { loadDocsPagePayload } = await import('../app/src/lib/docs-page.server');
 const { resolvePlatformGroupParentPage } = await import('../app/src/lib/platforms/platform-group-pages');

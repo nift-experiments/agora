@@ -1,6 +1,6 @@
 # Agora documentation: Nift + TanStack, authored source
 
-This independent experiment preserves Agora's TanStack Start/Router, React and Fumadocs application while moving document compilation and dependency-aware publication into a Nift-assisted pipeline. It is under implementation and certification; no final performance or complete-parity claim is made here.
+This independent experiment preserves Agora's TanStack Start/Router, React and Fumadocs application while moving document compilation and dependency-aware publication into a Nift-assisted pipeline. The global implementation reproduces the complete reference route and non-bundle publication scope from clean GitHub clones. Regional deployment and external-service qualifications remain explicit below.
 
 Upstream source is [AgoraIO/docs-portal](https://github.com/AgoraIO/docs-portal), pinned to `3c6552914e6cec74ab5d9c38b3bd4eeb51871d13`. Apache 2.0 attribution and licensing are retained. See [UPSTREAM.md](UPSTREAM.md), [MIGRATION.md](MIGRATION.md), [HANDOVER.md](HANDOVER.md) and [investigation/STATUS.md](investigation/STATUS.md).
 
@@ -53,6 +53,6 @@ Global search retains the upstream Algolia service contract and local Orama fall
 
 Root `vercel.json` retains upstream redirects, conditional routes and `bulkRedirectsPath`; its install/build/output settings target this repository and `public/`. `vercel-legacy-redirects.json` is copied without changing its rules. Root `vercel.base.json` preserves its corresponding upstream contract. The reference `app/serve.json` points to `_shell.html`, which is not a migrated output, so that rewrite is not copied to the root. Publication includes route HTML plus the application index/404; do not redirect existing assets or pages to a nonexistent shell. A deployment build image must provide the verified Nift CLI; the install command installs app dependencies, not Nift. These files are hosting adapters, not deployment certification.
 
-Keep raw benchmark results, full logs, screenshots and frozen references outside the source repository in canonical experiment evidence storage. Preserve complete pipeline/component accounting, serialized samples, aggregate process-tree RSS, cache definitions and incremental/forced correctness. Final benchmarking and independent clean-clone certification are pending. No Labs publication is authorized at this stage.
+Keep raw benchmark results, full logs, screenshots and frozen references outside the source repository in canonical experiment evidence storage. Preserve complete pipeline/component accounting, serialized samples, aggregate process-tree RSS, cache definitions and incremental/forced correctness. Independent clean-clone corpus certification has passed. Benchmark observations and raw evidence remain private outside this repository. No Labs publication is authorized.
 
 The pinned three-page projection fallback is documented in [tools/PROJECTION-COMPATIBILITY.md](tools/PROJECTION-COMPATIBILITY.md). It preserves upstream downloads and payload metadata without disabling the working browser article modules.
