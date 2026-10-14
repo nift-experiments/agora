@@ -1,0 +1,13 @@
+{
+  "title": "Cloud Transcoding",
+  "navScope": {},
+  "sidebarIndexTitle": "Cloud Transcoding overview",
+  "pages": [
+    "index",
+    "reference/release-notes",
+    "sdk-quickstart",
+    "rest-quickstart",
+    "build",
+    "reference"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "set-up-your-project",
+    "build-core-media-features",
+    "secure-and-optimize-connections"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "integration-best-practices",
+    "receive-notifications"
+  ]
+}

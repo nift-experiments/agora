@@ -1,0 +1,22 @@
+{
+  "title": "Reference",
+  "pages": [
+    "pricing",
+    "pricing-plan-details",
+    "!billing-policies",
+    "status-page",
+    "comparison-chat-signalling",
+    "downloads",
+    "error-codes",
+    "!glossary",
+    "manual-sdk-install",
+    "sdk-logs",
+    "security-best-practice",
+    "supported-platforms",
+    "---Console and analytics---",
+    "console/content-moderation-microsoft",
+    "console/data-insights",
+    "console/data-metrics",
+    "console/real-time-query"
+  ]
+}

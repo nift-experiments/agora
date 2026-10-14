@@ -1,0 +1,11 @@
+{
+  "title": "Interactive Whiteboard",
+  "navScope": {},
+  "sidebarIndexTitle": "Interactive Whiteboard overview",
+  "pages": [
+    "index",
+    "[Compare and choose](/en/realtime-media/whiteboard/whiteboard-fastboard)",
+    "build",
+    "reference"
+  ]
+}

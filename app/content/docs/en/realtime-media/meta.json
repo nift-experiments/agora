@@ -1,0 +1,29 @@
+{
+  "title": "RTC",
+  "icon": "Cpu",
+  "root": true,
+  "pages": [
+    "overview",
+    "---[Radio]Build Live Interaction---",
+    "rtc",
+    "rtm",
+    "im",
+    "whiteboard",
+    "flexible-classroom",
+    "marketplace",
+    "---[Workflow]Process Session Content---",
+    "speech-to-text",
+    "cloud-recording",
+    "on-premise-recording",
+    "transcoding",
+    "---[Layers]Connect External Media---",
+    "media-push",
+    "media-pull",
+    "rtmp-gateway",
+    "rtc-server-sdk",
+    "---[Cpu]Connect Devices---",
+    "iot",
+    "---[BarChart3]Analytics---",
+    "agora-analytics"
+  ]
+}

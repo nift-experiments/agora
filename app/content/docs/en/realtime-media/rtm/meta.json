@@ -1,0 +1,13 @@
+{
+  "title": "Signaling",
+  "navScope": {},
+  "sidebarIndexTitle": "Signaling overview",
+  "pages": [
+    "index",
+    "reference/release-notes",
+    "quickstart",
+    "beginners-guide",
+    "build",
+    "reference"
+  ]
+}

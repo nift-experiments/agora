@@ -1,0 +1,11 @@
+{
+  "title": "Media Push",
+  "navScope": {},
+  "sidebarIndexTitle": "Media Push overview",
+  "pages": [
+    "index",
+    "get-started/enable-media-push",
+    "build",
+    "reference"
+  ]
+}

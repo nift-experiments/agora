@@ -1,0 +1,10 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "authenticate-and-secure-channels",
+    "manage-connections-and-quality",
+    "configure-media",
+    "send-messages"
+  ]
+}

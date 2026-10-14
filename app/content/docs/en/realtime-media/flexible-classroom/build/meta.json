@@ -1,0 +1,11 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "set-up-your-account-and-authentication",
+    "integrate-the-sdks",
+    "customize-the-ui-and-plugins",
+    "enable-teaching-features",
+    "secure-your-classrooms"
+  ]
+}

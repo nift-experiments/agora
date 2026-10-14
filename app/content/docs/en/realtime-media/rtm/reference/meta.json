@@ -1,0 +1,18 @@
+{
+  "title": "Reference",
+  "pages": [
+    "pricing",
+    "limitations",
+    "error-codes",
+    "channel-naming",
+    "supported-platforms",
+    "!subscription-packages",
+    "migration-guide",
+    "downloads",
+    "troubleshooting",
+    "!firewall",
+    "cloud-proxy-allowed-ips",
+    "cloud-proxy-migration-guide",
+    "beginners-guide"
+  ]
+}

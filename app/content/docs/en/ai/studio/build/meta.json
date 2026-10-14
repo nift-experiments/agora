@@ -1,0 +1,14 @@
+{
+  "icon": "Hammer",
+  "title": "Build and configure",
+  "pages": [
+    "concierge",
+    "customize-agent",
+    "prompt-design",
+    "integrations",
+    "custom-tools",
+    "hubspot-connector",
+    "supported-vendors",
+    "test-agent"
+  ]
+}

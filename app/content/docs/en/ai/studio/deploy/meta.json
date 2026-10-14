@@ -1,0 +1,13 @@
+{
+  "title": "Deploy",
+  "pages": [
+    "index",
+    "deploy-agent",
+    "import",
+    "inbound",
+    "connect-agent",
+    "campaign",
+    "sip-trunk",
+    "transfer-to-sip"
+  ]
+}

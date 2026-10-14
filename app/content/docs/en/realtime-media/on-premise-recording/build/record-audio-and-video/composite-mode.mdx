@@ -1,0 +1,177 @@
+---
+title: "Composite recording"
+description: "How to record audio and video in composite recording mode using command line."
+---
+
+<PlatformStructured platform="linux-cpp">
+
+The On-Premise Recording SDK supports two recording modes:
+
+- Individual recording mode: This is the default recording mode. The SDK generates one audio and/or video file for each UID.
+- Composite recording mode: Generates a single mixed audio and video file for all UIDs in a channel, or mixes the audio of all UIDs in the channel into an audio file and the video of all UIDs into a video file.
+
+See [Differences between individual recording mode and composite recording mode](/en/api-reference/faq/integration/recording_mode) to decide which mode you should use.
+
+## Prerequisites
+
+Before continuing, follow the [Quickstart](/en/realtime-media/on-premise-recording/quickstart) guide to integrate the Recording SDK and implement the basic recording functionality.
+
+## Implement composite recording
+
+The implementation of composite recording is largely similar to the steps in the [Quickstart](/en/realtime-media/on-premise-recording/quickstart) guide. The main differences are in the configuration parameters and the APIs used.
+
+Refer to the following call sequence diagram to understand the recording workflow.
+
+<details>
+<summary>Sequence diagram</summary>
+
+![Sequence diagram](https://assets-docs.agora.io/images/on-premise-recording/composite-recording-logic.svg)
+</details>
+
+To implement composite recording in your app, follow these steps:
+
+To implement composite recording mode in your C++ app, follow these steps:
+
+1. Initialize the recorder with [`enableMix`](/en/api-reference/api-ref/on-premise-recording#initialize) set to `true`.
+2. Subscribe to the audio and video streams of the users you want to record.
+3. Join the channel with [`joinChannel`](/en/api-reference/api-ref/on-premise-recording#joinchannel).
+4. After joining the channel, configure the recording:
+   - Use [`setRecorderConfig`](/en/api-reference/api-ref/on-premise-recording#setrecorderconfig) to set video resolution, bitrate, and storage path.
+   - Optionally, apply watermarks with [`enableAndUpdateVideoWatermarks`](/en/api-reference/api-ref/on-premise-recording#enableandupdatevideowatermarks).
+   - Define the video layout with [`setVideoMixingLayout`](/en/api-reference/api-ref/on-premise-recording#setvideomixinglayout).
+5. Start and stop recording by calling:
+   - [`startRecording`](/en/api-reference/api-ref/on-premise-recording#startrecording)
+   - [`stopRecording`](/en/api-reference/api-ref/on-premise-recording#stoprecording)
+
+Refer to the following code to implement these steps:
+
+```cpp
+// Initialize the recorder in composite recording mode
+recorder->initialize(service, true);
+
+// Subscribe to all audio and video streams
+recorder->subscribeAllAudio();
+recorder->subscribeAllVideo();
+
+// Join the channel
+recorder->joinChannel(config.token.c_str(), config.ChannelName.c_str(), config.UserId.c_str());
+
+// Set recording configuration
+recorder->setRecorderConfig(recorder_config);
+
+// Apply watermarks (optional)
+recorder->enableAndUpdateVideoWatermarks(watermarks, config.waterMarks.size());
+
+// Set the video mixing layout
+recorder->setVideoMixingLayout(layout);
+
+// Start recording
+recorder->startRecording();
+
+// ...
+
+// Stop recording
+recorder->stopRecording();
+```
+
+## Reference
+
+This section contains content that completes the information on this page, or points you to documentation that explains other aspects to this product.
+
+### Considerations
+
+The composite recording mode supports a specific set of APIs. Calling unsupported methods in the wrong mode has no effect. When using the composite recording mode, the following methods do not work:
+
+    * [`setRecorderConfigByUid`](/en/api-reference/api-ref/on-premise-recording#setrecorderconfigbyuid)
+    * [`enableAndUpdateVideoWatermarksByUid`](/en/api-reference/api-ref/on-premise-recording#enableandupdatevideowatermarksbyuid)
+    * [`startSingleRecordingByUid`](/en/api-reference/api-ref/on-premise-recording#startsinglerecordingbyuid)
+    * [`stopSingleRecordingByUid`](/en/api-reference/api-ref/on-premise-recording#stopsinglerecordingbyuid)
+
+</PlatformStructured>
+
+<PlatformStructured platform="linux-java">
+
+The On-Premise Recording SDK supports two recording modes:
+
+- Individual recording mode: This is the default recording mode. The SDK generates one audio and/or video file for each UID.
+- Composite recording mode: Generates a single mixed audio and video file for all UIDs in a channel, or mixes the audio of all UIDs in the channel into an audio file and the video of all UIDs into a video file.
+
+See [Differences between individual recording mode and composite recording mode](/en/api-reference/faq/integration/recording_mode) to decide which mode you should use.
+
+## Prerequisites
+
+Before continuing, follow the [Quickstart](/en/realtime-media/on-premise-recording/quickstart) guide to integrate the Recording SDK and implement the basic recording functionality.
+
+## Implement composite recording
+
+The implementation of composite recording is largely similar to the steps in the [Quickstart](/en/realtime-media/on-premise-recording/quickstart) guide. The main differences are in the configuration parameters and the APIs used.
+
+Refer to the following call sequence diagram to understand the recording workflow.
+
+<details>
+<summary>Sequence diagram</summary>
+
+![Sequence diagram](https://assets-docs.agora.io/images/on-premise-recording/composite-recording-logic.svg)
+</details>
+
+To implement composite recording in your app, follow these steps:
+
+1. Initialize the recorder with [`enableMix`](/en/api-reference/api-ref/on-premise-recording#initialize) set to `true`.
+2. Subscribe to the audio and video streams of the users you want to record.
+3. Join the channel using [`joinChannel`](/en/api-reference/api-ref/on-premise-recording#joinchannel).
+4. After joining the channel:
+   - Use [`setRecorderConfig`](/en/api-reference/api-ref/on-premise-recording#setrecorderconfig) to set video resolution, frame rate, duration, and output path.
+   - Optionally, use [`enableAndUpdateVideoWatermarks`](/en/api-reference/api-ref/on-premise-recording#enableandupdatevideowatermarks) to apply video watermarks.
+   - Use [`setVideoMixingLayout`](/en/api-reference/api-ref/on-premise-recording#setvideomixinglayout) to configure the layout of multiple video streams.
+5. Start and stop recording using:
+   - [`startRecording`](/en/api-reference/api-ref/on-premise-recording#startrecording)
+   - [`stopRecording`](/en/api-reference/api-ref/on-premise-recording#stoprecording)
+
+Refer to the following code to implement these steps:
+
+```java
+// Initialize the recorder in composite recording mode
+agoraMediaRtcRecorder.initialize(agoraService, true);
+
+// Subscribe to all audio and video streams
+agoraMediaRtcRecorder.subscribeAllAudio();
+VideoSubscriptionOptions options = new VideoSubscriptionOptions();
+options.setEncodedFrameOnly(false);
+options.setType(Constants.VideoStreamType.VIDEO_STREAM_HIGH);
+agoraMediaRtcRecorder.subscribeAllVideo(options);
+
+// Join the channel
+agoraMediaRtcRecorder.joinChannel(
+    recorderConfig.getToken(),
+    recorderConfig.getChannelName(),
+    recorderConfig.getUserId()
+);
+
+// Configure the recorder
+agoraMediaRtcRecorder.setRecorderConfig(recorderConfig);
+agoraMediaRtcRecorder.enableAndUpdateVideoWatermarks(watermarks); // Optional
+agoraMediaRtcRecorder.setVideoMixingLayout(layout);
+
+// Start recording
+agoraMediaRtcRecorder.startRecording();
+
+// ...
+
+// Stop recording
+agoraMediaRtcRecorder.stopRecording();
+```
+
+## Reference
+
+This section contains content that completes the information on this page, or points you to documentation that explains other aspects to this product.
+
+### Considerations
+
+The composite recording mode supports a specific set of APIs. Calling unsupported methods in the wrong mode has no effect. When using the composite recording mode, the following methods do not work:
+
+    * [`setRecorderConfigByUid`](/en/api-reference/api-ref/on-premise-recording#setrecorderconfigbyuid)
+    * [`enableAndUpdateVideoWatermarksByUid`](/en/api-reference/api-ref/on-premise-recording#enableandupdatevideowatermarksbyuid)
+    * [`startSingleRecordingByUid`](/en/api-reference/api-ref/on-premise-recording#startsinglerecordingbyuid)
+    * [`stopSingleRecordingByUid`](/en/api-reference/api-ref/on-premise-recording#stopsinglerecordingbyuid)
+
+</PlatformStructured>

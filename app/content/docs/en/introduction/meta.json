@@ -1,0 +1,26 @@
+{
+  "title": "Introduction",
+  "icon": "BookOpen",
+  "root": true,
+  "pages": [
+    "index",
+    "core-concepts",
+    "---[Bot]Coding Agent Tools---",
+    "start-with-ai",
+    "agora-skills",
+    "agora-cli",
+    "agora-mcp",
+    "---[User]Production basics---",
+    "account",
+    "console-setup",
+    "---[User]Billing---",
+    "billing/billing-policies",
+    "billing/account-settlement",
+    "billing/subscription-packages",
+    "---[User]General references---",
+    "[Recipes](/en/api-reference/recipes)",
+    "glossary",
+    "firewall",
+    "security-privacy"
+  ]
+}

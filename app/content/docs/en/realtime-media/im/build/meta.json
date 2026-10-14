@@ -1,0 +1,11 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "secure-access-and-authentication",
+    "build-core-messaging",
+    "build-groups-rooms-and-threads",
+    "notifications-and-event-handling",
+    "moderate-and-manage-client-behavior"
+  ]
+}

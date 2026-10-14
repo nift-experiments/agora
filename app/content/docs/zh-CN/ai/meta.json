@@ -1,0 +1,14 @@
+{
+  "title": "Voice Agent",
+  "icon": "Zap",
+  "root": true,
+  "pages": [
+    "index",
+    "get-started",
+    "device-kit",
+    "build",
+    "best-practices",
+    "models",
+    "reference"
+  ]
+}

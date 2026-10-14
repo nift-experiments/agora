@@ -1,0 +1,424 @@
+import { describe, expect, it } from 'vitest';
+import { normalizeDocsHref } from './docs-link-normalize';
+
+describe('normalizeDocsHref', () => {
+  it('resolves relative markdown links from the source content path', () => {
+    expect(
+      normalizeDocsHref('get-started/quickstart.md', {
+        contentPath: 'en/ai/index.md',
+      }),
+    ).toEqual({ href: '/en/ai/get-started/quickstart', kind: 'internal-doc' });
+  });
+
+  it('resolves extensionless relative doc links from the source content path', () => {
+    expect(
+      normalizeDocsHref('transcripts#api-reference', {
+        contentPath: 'en/ai/reference/event-types.mdx',
+      }),
+    ).toEqual({
+      href: '/en/ai/reference/transcripts#api-reference',
+      kind: 'internal-doc',
+    });
+
+    expect(
+      normalizeDocsHref('transcripts?view=full#api-reference', {
+        contentPath: 'en/ai/reference/event-types.mdx',
+      }),
+    ).toEqual({
+      href: '/en/ai/reference/transcripts?view=full#api-reference',
+      kind: 'internal-doc',
+    });
+  });
+
+  it('collapses index.md targets to their directory route', () => {
+    expect(
+      normalizeDocsHref('studio/index.md', {
+        contentPath: 'en/ai/index.md',
+      }),
+    ).toEqual({ href: '/en/ai/studio', kind: 'internal-doc' });
+  });
+
+  it('resolves parent traversal and preserves search and hash', () => {
+    expect(
+      normalizeDocsHref(
+        '../api-reference/conversational-ai/rest-api/index.md?view=all#start',
+        { contentPath: 'en/ai/index.md' },
+      ),
+    ).toEqual({
+      href: '/en/api-reference/api-ref/conversational-ai?view=all#start',
+      kind: 'internal-doc',
+    });
+  });
+
+  it('leaves non-doc links unchanged', () => {
+    expect(
+      normalizeDocsHref('#overview', { contentPath: 'en/ai/index.md' }),
+    ).toEqual({ href: '#overview', kind: 'hash' });
+
+    expect(
+      normalizeDocsHref('https://example.com/page.md', {
+        contentPath: 'en/ai/index.md',
+      }),
+    ).toEqual({ href: 'https://example.com/page.md', kind: 'external' });
+
+    expect(
+      normalizeDocsHref('./diagram.png', { contentPath: 'en/ai/index.md' }),
+    ).toEqual({ href: './diagram.png', kind: 'relative-asset' });
+  });
+
+  it('scopes generated RTC Android API links to the active version', () => {
+    expect(
+      normalizeDocsHref(
+        '/zh-CN/api-reference/rtc/android/video/video-custom-capturenrendering#api_irtcengine_createcustomvideotrack',
+        {
+          contentPath:
+            'zh-CN/api-reference/rtc/android/4.6.0/full-sdk-api-list.mdx',
+        },
+      ),
+    ).toEqual({
+      href: '/zh-CN/api-reference/rtc/android/4.6.0/video/video-custom-capturenrendering#api_irtcengine_createcustomvideotrack',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref(
+        '/en/api-reference/rtc/android/audio/audio-custom-capturenrendering?view=all#api_irtcengine_createcustomaudiotrack',
+        {
+          contentPath: 'en/api-reference/rtc/android/4.6.0/overview.mdx',
+        },
+      ),
+    ).toEqual({
+      href: '/en/api-reference/rtc/android/4.6.0/audio/audio-custom-capturenrendering?view=all#api_irtcengine_createcustomaudiotrack',
+      kind: 'root',
+    });
+  });
+
+  it('keeps current RTC Android API links on the default version URL', () => {
+    expect(
+      normalizeDocsHref(
+        '/en/api-reference/rtc/android/audio/audio-custom-capturenrendering',
+        {
+          contentPath: 'en/api-reference/rtc/android/(current)/overview.mdx',
+        },
+      ),
+    ).toEqual({
+      href: '/en/api-reference/rtc/android/audio/audio-custom-capturenrendering',
+      kind: 'root',
+    });
+  });
+
+  it('does not treat the RTC Android index page as a version scope', () => {
+    expect(
+      normalizeDocsHref('/en/api-reference/rtc/android/overview', {
+        contentPath: 'en/api-reference/rtc/android/index.mdx',
+      }),
+    ).toEqual({
+      href: '/en/api-reference/rtc/android/overview',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes legacy Conversational AI root links', () => {
+    expect(
+      normalizeDocsHref('/zh-CN/operations/start-agent#llm-max_history'),
+    ).toEqual({
+      href: '/zh-CN/api-reference/api-ref/conversational-ai/join#llm-max_history',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/operations/stop-agent')).toEqual({
+      href: '/en/api-reference/api-ref/conversational-ai/leave',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref('/zh-CN/user-guides/realtime-sub#api-参考'),
+    ).toEqual({
+      href: '/zh-CN/ai/realtime-sub#api-参考',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/zh-CN/get-started/enable-service')).toEqual({
+      href: '/zh-CN/ai/enable-service',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes legacy paths produced from relative markdown links', () => {
+    expect(
+      normalizeDocsHref('../get-started/enable-service.md#获取临时-token', {
+        contentPath: 'zh-CN/api-reference/enable-ncs.mdx',
+      }),
+    ).toEqual({
+      href: '/zh-CN/ai/enable-service#获取临时-token',
+      kind: 'internal-doc',
+    });
+
+    expect(
+      normalizeDocsHref('../operations/start-agent.md#llm-max_history', {
+        contentPath: 'en/api-reference/ncs-events.mdx',
+      }),
+    ).toEqual({
+      href: '/en/api-reference/api-ref/conversational-ai/join#llm-max_history',
+      kind: 'internal-doc',
+    });
+
+    expect(
+      normalizeDocsHref('../operations/start-agent#llm-max_history', {
+        contentPath: 'en/api-reference/ncs-events.mdx',
+      }),
+    ).toEqual({
+      href: '/en/api-reference/api-ref/conversational-ai/join#llm-max_history',
+      kind: 'internal-doc',
+    });
+  });
+
+  it('normalizes legacy Conversational AI REST API links', () => {
+    expect(
+      normalizeDocsHref(
+        '/en/api-reference/conversational-ai/rest-api/agent/join#properties-llm',
+      ),
+    ).toEqual({
+      href: '/en/api-reference/api-ref/conversational-ai/join#properties-llm',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref(
+        '../../api-reference/conversational-ai/rest-api/agent/turns.md?page=2',
+        { contentPath: 'en/ai/build/start-stop-agent.mdx' },
+      ),
+    ).toEqual({
+      href: '/en/api-reference/api-ref/conversational-ai/turns?page=2',
+      kind: 'internal-doc',
+    });
+  });
+
+  it('normalizes legacy absolute docs links from imported content', () => {
+    expect(
+      normalizeDocsHref('/doc/convoai/restful/webhook/ncs-events'),
+    ).toEqual({
+      href: '/zh-CN/api-reference/ncs-events',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/ai/openai-realtime')).toEqual({
+      href: '/en/ai/reference/openai-realtime-integration',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes legacy SDK download links to the API Reference SDKs page', () => {
+    expect(normalizeDocsHref('/sdks?platform=android#downloads')).toEqual({
+      href: '/en/api-reference/sdks?platform=android#downloads',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/sdks?platform=linux')).toEqual({
+      href: '/en/api-reference/sdks?platform=linux',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes legacy RTC and support links used by migrated Voice and Video docs', () => {
+    expect(normalizeDocsHref('/api-reference')).toEqual({
+      href: '/en/api-reference',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/api-reference/rtc')).toEqual({
+      href: '/en/api-reference/api-ref/rtc',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/media-push/product-overview')).toEqual({
+      href: '/en/api-reference/api-ref/rtc',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref(
+        '/help/integration-issues/token_cohost#enable-co-host-authentication',
+      ),
+    ).toEqual({
+      href: '/en/realtime-media/rtc/build/authenticate-users/deploy-token-server#enable-co-host-authentication',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref('/help/account-and-billing/billing_account'),
+    ).toEqual({
+      href: '/en/api-reference/faq/account/billing_account',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref(
+        '/extensions-marketplace/get-started/quickstart-implement',
+      ),
+    ).toEqual({
+      href: '/en/api-reference/api-ref/extensions-marketplace/provisioning',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes legacy AI routes that still point at pre-grouped build pages', () => {
+    expect(normalizeDocsHref('/en/ai/build/webhooks')).toEqual({
+      href: '/en/ai/build/handle-runtime-events/webhooks',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/ai/build/monitor-agent-runtime')).toEqual({
+      href: '/en/ai/build/handle-runtime-events/monitor-agent-runtime',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/ai/build/debug-agent-failures')).toEqual({
+      href: '/en/ai/build/handle-runtime-events/debug-agent-failures',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/ai/build/retrieve-session-history')).toEqual({
+      href: '/en/ai/build/handle-runtime-events/retrieve-session-history',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/ai/build/presets')).toEqual({
+      href: '/en/ai/build/custom-model-integration/presets',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/ai/build/mcp-tools')).toEqual({
+      href: '/en/ai/build/tools/mcp-tools',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes AI routes for pages moved out of custom model integration', () => {
+    expect(
+      normalizeDocsHref('/en/ai/build/custom-model-integration/custom-tools'),
+    ).toEqual({
+      href: '/en/ai/build/tools/custom-tools',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref('/en/ai/build/custom-model-integration/managed-mode'),
+    ).toEqual({
+      href: '/en/ai/build/managed-mode',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref(
+        '/en/ai/build/custom-model-integration/build-server-client',
+      ),
+    ).toEqual({
+      href: '/en/ai/build/build-server-client',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes misplaced AI relative links that resolve under build or ai/api-reference', () => {
+    expect(
+      normalizeDocsHref('/en/ai/build/reference/event-types#103-agent-history'),
+    ).toEqual({
+      href: '/en/ai/reference/event-types#103-agent-history',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/ai/build/get-started/quickstart')).toEqual({
+      href: '/en/ai/get-started/quickstart',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref(
+        '/en/ai/api-reference/conversational-ai/rest-api/agent/join#properties-llm',
+      ),
+    ).toEqual({
+      href: '/en/api-reference/api-ref/conversational-ai/join#properties-llm',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref('/api-reference/conversational-ai/rest-api/agent/join'),
+    ).toEqual({
+      href: '/en/api-reference/api-ref/conversational-ai/join',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes moved AI docs targets and english server sdk routes', () => {
+    expect(
+      normalizeDocsHref('/en/ai/build/custom-model-integration/transcripts'),
+    ).toEqual({
+      href: '/en/ai/build/transcripts',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref('/en/ai/build/shape-the-conversation/custom-llm'),
+    ).toEqual({
+      href: '/en/ai/build/custom-model-integration/custom-llm',
+      kind: 'root',
+    });
+
+    expect(normalizeDocsHref('/en/ai/best-practices/start-stop-agent')).toEqual(
+      {
+        href: '/en/ai/build/start-stop-agent',
+        kind: 'root',
+      },
+    );
+
+    expect(normalizeDocsHref('/en/ai/models/mllm/overview')).toEqual({
+      href: '/en/ai/models/mllm/gemini',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref(
+        '/en/api-reference/api-ref/conversational-ai/server-sdk/typescript',
+      ),
+    ).toEqual({
+      href: '/en/api-reference/api-ref/server-sdk/typescript',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes index-suffixed docs routes', () => {
+    expect(
+      normalizeDocsHref('/en/realtime-media/rtc/index#quickstart'),
+    ).toEqual({
+      href: '/en/realtime-media/rtc#quickstart',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes legacy Video Calling links from imported content', () => {
+    expect(
+      normalizeDocsHref(
+        '/video-calling/token-authentication/deploy-token-server#generate-wildcard-tokens',
+      ),
+    ).toEqual({
+      href: '/en/realtime-media/rtc/build/authenticate-users/deploy-token-server#generate-wildcard-tokens',
+      kind: 'root',
+    });
+
+    expect(
+      normalizeDocsHref('/video-calling/get-started/get-started-sdk'),
+    ).toEqual({
+      href: '/en/realtime-media/rtc/get-started-sdk',
+      kind: 'root',
+    });
+  });
+
+  it('normalizes the legacy managed mode link to current presets docs', () => {
+    expect(
+      normalizeDocsHref('/conversational-ai/develop/managed-mode'),
+    ).toEqual({
+      href: '/en/ai/build/custom-model-integration/presets',
+      kind: 'root',
+    });
+  });
+});

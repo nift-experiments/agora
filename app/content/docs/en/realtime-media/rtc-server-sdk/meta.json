@@ -1,0 +1,12 @@
+{
+  "title": "Server Gateway",
+  "navScope": {},
+  "sidebarIndexTitle": "Server Gateway overview",
+  "pages": [
+    "index",
+    "reference/release-notes",
+    "quickstart",
+    "build",
+    "reference"
+  ]
+}

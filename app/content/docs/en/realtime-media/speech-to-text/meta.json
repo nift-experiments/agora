@@ -1,0 +1,12 @@
+{
+  "title": "Speech-to-Text",
+  "navScope": {},
+  "sidebarIndexTitle": "Speech-to-Text overview",
+  "pages": [
+    "index",
+    "reference/release-notes",
+    "get-started/quickstart",
+    "build",
+    "reference"
+  ]
+}

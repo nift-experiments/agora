@@ -1,0 +1,9 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "start-transcribing-and-translating",
+    "process-transcription-data",
+    "extend-and-optimize"
+  ]
+}

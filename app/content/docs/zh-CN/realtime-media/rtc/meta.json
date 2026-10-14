@@ -1,0 +1,24 @@
+{
+  "title": "语音与视频",
+  "navScope": {
+    "defaultVersion": "android",
+    "platformTabs": true,
+    "sharedSidebar": true,
+    "versions": [
+      {
+        "id": "android",
+        "label": "Android",
+        "path": "android"
+      },
+      {
+        "id": "macOS",
+        "label": "macOS",
+        "path": "macOS"
+      }
+    ]
+  },
+  "pages": [
+    "android",
+    "macOS"
+  ]
+}

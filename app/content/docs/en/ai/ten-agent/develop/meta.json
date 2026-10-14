@@ -1,0 +1,11 @@
+{
+  "title": "Develop",
+  "pages": [
+    "development-workflow",
+    "build-ten-applications",
+    "develop-with-go",
+    "cloud-store",
+    "validate-graphs",
+    "profile-performance"
+  ]
+}

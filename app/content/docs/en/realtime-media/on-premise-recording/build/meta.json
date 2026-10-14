@@ -1,0 +1,11 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "set-up-authentication",
+    "record-audio-and-video",
+    "customize-the-recording",
+    "process-recorded-files",
+    "connect-through-a-firewall"
+  ]
+}

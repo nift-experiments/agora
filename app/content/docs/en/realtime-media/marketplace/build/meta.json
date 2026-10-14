@@ -1,0 +1,12 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "add-audio-effects",
+    "add-video-and-ar-effects",
+    "add-moderation-and-intelligence",
+    "build-your-own-extension",
+    "connect-to-agora-services",
+    "publish-and-document"
+  ]
+}

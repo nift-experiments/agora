@@ -1,0 +1,12 @@
+{
+  "title": "On-premise Recording",
+  "navScope": {},
+  "sidebarIndexTitle": "On-Premise Recording overview",
+  "pages": [
+    "index",
+    "reference/release-notes",
+    "quickstart",
+    "build",
+    "reference"
+  ]
+}

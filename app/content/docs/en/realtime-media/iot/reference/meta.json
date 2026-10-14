@@ -1,0 +1,15 @@
+{
+  "title": "Reference",
+  "pages": [
+    "pricing",
+    "!core-concepts",
+    "supported-platforms",
+    "resources",
+    "error-codes",    
+    "agora-console-rest-api",
+    "!billing-policies",
+    "!firewall",
+    "!glossary",
+    "!security"
+  ]
+}

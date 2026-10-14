@@ -1,0 +1,13 @@
+{
+  "title": "Cloud Recording",
+  "navScope": {},
+  "sidebarIndexTitle": "Cloud Recording overview",
+  "pages": [
+    "index",
+    "reference/release-notes",
+    "rest-quickstart",
+    "middleware-quickstart",
+    "build",
+    "reference"
+  ]
+}

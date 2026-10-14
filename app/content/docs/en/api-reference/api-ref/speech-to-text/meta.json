@@ -1,0 +1,17 @@
+{
+  "title": "Speech-to-Text",
+  "navScope": {},
+  "pages": [
+    "index",
+    "authentication",
+    "join",
+    "query",
+    "leave",
+    "update",
+    "list",
+    "api-callback-service",
+    "rest-api-v6",
+    "rest-api-v5",
+    "!restful-authentication"
+  ]
+}

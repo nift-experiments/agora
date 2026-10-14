@@ -1,0 +1,8 @@
+{
+  "title": "Send and receive messages",
+  "pages": [
+    "message-payload-structuring",
+    "message-history",
+    "add-event-listener"
+  ]
+}

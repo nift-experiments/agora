@@ -1,0 +1,13 @@
+{
+  "title": "Chat",
+  "navScope": {},
+  "sidebarIndexTitle": "Chat overview",
+  "pages": [
+    "index",
+    "reference/release-notes",
+    "get-started-sdk",
+    "get-started-uikit",
+    "build",
+    "reference"
+  ]
+}

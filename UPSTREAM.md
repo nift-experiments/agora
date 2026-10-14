@@ -7,4 +7,4 @@ Commit date: `2026-10-14T17:21:14+05:00`
 
 Original documentation/application authors: AgoraIO and contributors. Upstream Apache License 2.0 is retained verbatim in LICENSE. No upstream NOTICE file exists at this pinned revision; preserve any notices and third-party license requirements when source/dependencies are incorporated. This repository is an independent Nift/TanStack experiment, not an Agora-endorsed release.
 
-Initial scaffold produced by Nift 4.12.0 `nift init --migration`, 2026-10-15. No upstream content has been migrated yet.
+Initial scaffold produced by Nift 4.12.0 `nift init --migration`, 2026-10-15. Upstream application, authored content and attribution are now incorporated under `app/`; certification remains in progress. The immutable Git-derived date seed comes from this pinned upstream history, not migration import commits.

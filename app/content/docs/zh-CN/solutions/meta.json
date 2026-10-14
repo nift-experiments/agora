@@ -1,0 +1,26 @@
+{
+  "title": "解决方案",
+  "icon": "Layers",
+  "root": true,
+  "pages": [
+    "index",
+    "---[Sparkles]Live interaction---",
+    "showroom",
+    "game-voice",
+    "---[Briefcase]Meetings & calling---",
+    "meeting",
+    "voip-call",
+    "---[GraduationCap]Online classrooms---",
+    "flexible-classroom",
+    "one-to-one-classroom",
+    "small-classroom",
+    "breakout-classroom",
+    "art-class",
+    "online-music-class",
+    "---[Cpu]Connected devices---",
+    "teleoperation",
+    "smart-camera",
+    "smart-doorbell",
+    "smart-watch"
+  ]
+}

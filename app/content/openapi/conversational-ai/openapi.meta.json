@@ -1,0 +1,8 @@
+{
+  "id": "conversational-ai",
+  "title": "Conversational AI REST API",
+  "source": "rest-api.en.yaml",
+  "publicPath": "/openapi/conversational-ai/rest-api.en.yaml",
+  "routePrefix": "api-reference/api-ref/conversational-ai",
+  "locales": ["en", "zh-CN"]
+}

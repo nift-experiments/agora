@@ -1,0 +1,12 @@
+{
+  "title": "Media Gateway",
+  "navScope": {},
+  "sidebarIndexTitle": "Media Gateway overview",
+  "pages": [
+    "index",
+    "reference/release-notes",
+    "quickstart",
+    "build",
+    "reference"
+  ]
+}

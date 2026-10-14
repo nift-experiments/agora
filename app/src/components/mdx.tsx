@@ -1,0 +1,1598 @@
+import { useTranslations } from '@fuma-translate/react';
+import { createLink } from '@tanstack/react-router';
+import {
+  type Accordion as FumadocsAccordion,
+  Accordions as FumadocsAccordions,
+} from 'fumadocs-ui/components/accordion';
+import { Card as FumadocsCard } from 'fumadocs-ui/components/card';
+import {
+  type CodeBlockProps,
+  CodeBlock as FumadocsCodeBlock,
+  Pre as FumadocsCodeBlockPre,
+} from 'fumadocs-ui/components/codeblock';
+import { File, Files, Folder } from 'fumadocs-ui/components/files';
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import {
+  Tab as FumadocsTab,
+  Tabs as FumadocsTabs,
+  TabsContent as FumadocsTabsContent,
+  TabsList as FumadocsTabsList,
+  TabsTrigger as FumadocsTabsTrigger,
+} from 'fumadocs-ui/components/tabs';
+import {
+  AccordionContent as FumadocsAccordionContent,
+  AccordionHeader as FumadocsAccordionHeader,
+  AccordionItem as FumadocsAccordionItem,
+  AccordionTrigger as FumadocsAccordionTrigger,
+} from 'fumadocs-ui/components/ui/accordion';
+import { buttonVariants } from 'fumadocs-ui/components/ui/button';
+import defaultMdxComponents from 'fumadocs-ui/mdx';
+import { useCopyButton } from 'fumadocs-ui/utils/use-copy-button';
+import { Check, LinkIcon } from 'lucide-react';
+import type { MDXComponents } from 'mdx/types';
+import {
+  type AnchorHTMLAttributes,
+  Children,
+  type ComponentProps,
+  type ComponentType,
+  createContext,
+  createElement,
+  type Dispatch,
+  isValidElement,
+  type ReactElement,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  type Ref,
+  type SetStateAction,
+  useCallback,
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { captureDocsCodeTabChanged } from '@/lib/analytics/posthog';
+import { cn } from '@/lib/cn';
+import {
+  DOCS_HASH_TARGET_EVENT,
+  findDocsHeadingForHash,
+  getActiveDocsScrollContainer,
+} from '@/lib/docs-hash';
+import {
+  type NormalizedDocsHref,
+  normalizeDocsHref,
+} from '@/lib/docs-link-normalize';
+import { PLATFORM_PREFERENCE_EVENT } from '@/lib/platforms/preference';
+import { PlanCards, PricingCards } from './mdx/PlanCards';
+import {
+  PlatformInline,
+  PlatformProcessedMarker,
+  PlatformStructured,
+} from './mdx/PlatformContent';
+import { PlatformPanel, PlatformTabsGroup } from './mdx/PlatformTabsGroup';
+import { RTCMinutesCalculator } from './mdx/RTCMinutesCalculator';
+
+type MDXContext = {
+  contentPath?: string;
+};
+
+const IM_PRICING_DETAILS_CONTENT_PATH =
+  'en/realtime-media/im/reference/pricing-plan-details.md';
+const FumadocsAnchor = defaultMdxComponents.a;
+const FumadocsTable = defaultMdxComponents.table;
+const FumadocsCodeBlockTab = defaultMdxComponents.CodeBlockTab;
+const FumadocsCodeBlockTabs = defaultMdxComponents.CodeBlockTabs;
+const FumadocsCodeBlockTabsList = defaultMdxComponents.CodeBlockTabsList;
+const FumadocsImage = defaultMdxComponents.img;
+const RouterFumadocsAnchor = createLink(FumadocsAnchor);
+const RouterFumadocsCard = createLink(FumadocsCard);
+const CodeBlockTabsValueContext = createContext<string | undefined>(undefined);
+const MdxTabLabelsContext = createContext<Record<string, string>>({});
+const MdxTabLabelContext = createContext<string | undefined>(undefined);
+const MdxAccordionRootContext = createContext(false);
+
+type TabsRootProps = ComponentProps<typeof FumadocsTabs> & {
+  children?: ReactNode;
+  defaultValue?: string;
+  onValueChange?: (value: string) => void;
+  value?: string;
+};
+type DocsCardProps = ComponentProps<typeof FumadocsCard> &
+  Pick<AnchorHTMLAttributes<HTMLAnchorElement>, 'download' | 'rel' | 'target'>;
+type AccordionsRootProps = Omit<
+  ComponentProps<typeof FumadocsAccordions>,
+  'defaultValue' | 'onValueChange' | 'type' | 'value'
+> & {
+  children?: ReactNode;
+  defaultValue?: string | string[];
+  openFirst?: boolean;
+  onValueChange?: (value: string | string[]) => void;
+  type?: 'single' | 'multiple';
+  value?: string | string[];
+};
+type AccordionHeadingLevel = 2 | 3 | 4;
+type AccordionProps = Omit<
+  ComponentProps<typeof FumadocsAccordion>,
+  'children' | 'id' | 'title' | 'value'
+> & {
+  children?: ReactNode;
+  headingLevel?: AccordionHeadingLevel;
+  id?: string;
+  title: ReactNode;
+  value?: string;
+};
+type CodeBlockTabsRootProps = ComponentProps<typeof FumadocsCodeBlockTabs> & {
+  children?: ReactNode;
+  defaultValue?: string;
+  groupId?: string;
+  onValueChange?: (value: string) => void;
+  value?: string;
+};
+type PreProps = CodeBlockProps;
+type ParameterListProps = ComponentProps<'div'> & {
+  nullable?: boolean;
+  optional?: boolean;
+  required?: boolean;
+  title?: ReactNode;
+};
+type ParameterProps = ComponentProps<'div'> & {
+  children?: ReactNode;
+  defaultValue?: ReactNode;
+  name?: ReactNode;
+  nullable?: boolean;
+  optional?: boolean;
+  possibleValues?: ReactNode;
+  required?: boolean;
+  type?: ReactNode;
+};
+type TabValueElement = ReactElement<{
+  children?: ReactNode;
+  value?: unknown;
+}>;
+
+const ControlledFumadocsTabs = FumadocsTabs as ComponentType<TabsRootProps>;
+const ControlledFumadocsAccordions =
+  FumadocsAccordions as ComponentType<AccordionsRootProps>;
+
+type ActiveAccordion = {
+  rootId: string;
+  value: string;
+};
+
+type AccordionPageState = {
+  accordionResetKey: number;
+  activeAccordion?: ActiveAccordion;
+  codeBlockTabValues: Record<string, string>;
+  setActiveAccordion: Dispatch<SetStateAction<ActiveAccordion | undefined>>;
+  setCodeBlockTabValues: Dispatch<SetStateAction<Record<string, string>>>;
+};
+
+const AccordionPageStateContext = createContext<AccordionPageState | undefined>(
+  undefined,
+);
+
+function Accordion({
+  children,
+  headingLevel,
+  id,
+  title,
+  value = String(title),
+  ...props
+}: AccordionProps) {
+  const hasAccordionRoot = useContext(MdxAccordionRootContext);
+  const titleContent = (
+    <FumadocsAccordionTrigger>{title}</FumadocsAccordionTrigger>
+  );
+  const headingTag = headingLevel
+    ? (`h${headingLevel}` as 'h2' | 'h3' | 'h4')
+    : undefined;
+  const headingTitle = headingTag
+    ? createElement(
+        headingTag,
+        {
+          className: 'm-0 flex flex-1 text-base font-medium',
+          'data-accordion-value': value,
+          id,
+        },
+        titleContent,
+      )
+    : null;
+  const header = headingTitle ? (
+    <div className="not-prose flex flex-row items-center text-fd-card-foreground font-medium has-focus-visible:bg-fd-accent">
+      {headingTitle}
+      {id ? <AccordionCopyButton id={id} /> : null}
+    </div>
+  ) : (
+    <FumadocsAccordionHeader id={id} data-accordion-value={value}>
+      {titleContent}
+      {id ? <AccordionCopyButton id={id} /> : null}
+    </FumadocsAccordionHeader>
+  );
+
+  const accordionItem = (
+    <FumadocsAccordionItem value={value} {...props}>
+      {header}
+      <FumadocsAccordionContent
+        data-toc-hidden={headingLevel !== undefined ? 'true' : undefined}
+        className={
+          headingLevel !== undefined ? 'data-[state=closed]:hidden' : undefined
+        }
+        forceMount={headingLevel !== undefined ? true : undefined}
+      >
+        <div className="px-4 pb-2 text-[0.9375rem] prose-no-margin">
+          {children}
+        </div>
+      </FumadocsAccordionContent>
+    </FumadocsAccordionItem>
+  );
+
+  if (!hasAccordionRoot) {
+    return (
+      <ControlledFumadocsAccordions defaultValue={value} type="single">
+        {accordionItem}
+      </ControlledFumadocsAccordions>
+    );
+  }
+
+  return accordionItem;
+}
+
+function AccordionCopyButton({ id }: { id: string }) {
+  const t = useTranslations({ note: 'accordion' });
+  const [checked, onClick] = useCopyButton(() => {
+    const url = new URL(window.location.href);
+    url.hash = id;
+    return navigator.clipboard.writeText(url.toString());
+  });
+
+  return (
+    <button
+      type="button"
+      aria-label={t('Copy Link', { note: 'aria-label' })}
+      className={cn(
+        buttonVariants({
+          color: 'ghost',
+          className: 'text-fd-muted-foreground me-2',
+        }),
+      )}
+      onClick={onClick}
+    >
+      {checked ? (
+        <Check className="size-3.5" />
+      ) : (
+        <LinkIcon className="size-3.5" />
+      )}
+    </button>
+  );
+}
+
+function firstVersionValue(children: ReactNode): string | undefined {
+  let first: string | undefined;
+
+  Children.forEach(children, (child) => {
+    if (first || !isValidElement<{ children?: ReactNode }>(child)) {
+      return;
+    }
+
+    if (child.type === Accordion) {
+      const { headingLevel, title, value } = child.props as AccordionProps;
+      if (headingLevel) {
+        first = value ?? String(title);
+      }
+    } else {
+      first = firstVersionValue(child.props.children);
+    }
+  });
+
+  return first;
+}
+
+function hasSevenColumnHeader(children: ReactNode) {
+  return Children.toArray(children).some((section) => {
+    if (
+      !isValidElement<{ children?: ReactNode }>(section) ||
+      section.type !== 'thead'
+    ) {
+      return false;
+    }
+
+    return Children.toArray(section.props.children).some(
+      (row) =>
+        isValidElement<{ children?: ReactNode }>(row) &&
+        row.type === 'tr' &&
+        Children.count(row.props.children) === 7,
+    );
+  });
+}
+
+function createDocsTableComponent(contentPath?: string) {
+  const isPricingDetailsPage = contentPath === IM_PRICING_DETAILS_CONTENT_PATH;
+
+  return function DocsTable({ className, ...props }: ComponentProps<'table'>) {
+    const isDensePricingTable =
+      isPricingDetailsPage && hasSevenColumnHeader(props.children);
+
+    return (
+      <FumadocsTable
+        {...props}
+        className={cn(className, isDensePricingTable && 'im-pricing-api-table')}
+      />
+    );
+  };
+}
+
+export function MDXAccordionProvider({ children }: { children: ReactNode }) {
+  const [activeAccordion, setActiveAccordion] = useState<ActiveAccordion>();
+  const [accordionResetKey, setAccordionResetKey] = useState(0);
+  const [codeBlockTabValues, setCodeBlockTabValues] = useState<
+    Record<string, string>
+  >({});
+
+  useEffect(() => {
+    const resetActiveAccordion = () => {
+      setActiveAccordion(undefined);
+      setAccordionResetKey((current) => current + 1);
+    };
+
+    window.addEventListener(PLATFORM_PREFERENCE_EVENT, resetActiveAccordion);
+
+    return () => {
+      window.removeEventListener(
+        PLATFORM_PREFERENCE_EVENT,
+        resetActiveAccordion,
+      );
+    };
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      accordionResetKey,
+      activeAccordion,
+      codeBlockTabValues,
+      setActiveAccordion,
+      setCodeBlockTabValues,
+    }),
+    [accordionResetKey, activeAccordion, codeBlockTabValues],
+  );
+
+  return (
+    <AccordionPageStateContext value={value}>
+      {children}
+    </AccordionPageStateContext>
+  );
+}
+
+function escapeTabValue(value: string) {
+  return value.toLowerCase().replace(/\s/, '-');
+}
+
+function collectTabValues(children: ReactNode, values: string[] = []) {
+  Children.forEach(children, (child) => {
+    if (!isValidElement(child)) {
+      return;
+    }
+
+    const element = child as TabValueElement;
+
+    if (element.type === Tabs) {
+      return;
+    }
+
+    const value = element.props.value;
+
+    if (typeof value === 'string' && !values.includes(value)) {
+      values.push(value);
+    }
+
+    collectTabValues(element.props.children, values);
+  });
+
+  return values;
+}
+
+function collectTabLabels(
+  children: ReactNode,
+  labels: Record<string, string> = {},
+) {
+  Children.forEach(children, (child) => {
+    if (!isValidElement(child)) {
+      return;
+    }
+
+    const element = child as TabValueElement;
+
+    if (element.type === Tabs) {
+      return;
+    }
+
+    const value = element.props.value;
+    const label = getStaticTabLabel(element.props.children);
+
+    if (
+      element.type === FumadocsTabsTrigger &&
+      typeof value === 'string' &&
+      label
+    ) {
+      labels[value] = label;
+    }
+
+    collectTabLabels(element.props.children, labels);
+  });
+
+  return labels;
+}
+
+function getStaticTabLabel(children: ReactNode): string | undefined {
+  const label = Children.toArray(children)
+    .map((child) => {
+      if (typeof child === 'string' || typeof child === 'number') {
+        return String(child);
+      }
+
+      if (isValidElement(child)) {
+        return (
+          getStaticTabLabel((child as TabValueElement).props.children) ?? ''
+        );
+      }
+
+      return '';
+    })
+    .join('')
+    .trim();
+
+  return label || undefined;
+}
+
+function useTabValues({
+  children,
+  items,
+}: {
+  children?: ReactNode;
+  items?: string[];
+}) {
+  return useMemo(() => {
+    if (items?.length) {
+      return items.map(escapeTabValue);
+    }
+
+    return collectTabValues(children);
+  }, [children, items]);
+}
+
+function useSafeTabValue({
+  defaultValue,
+  onValueChange,
+  value,
+  values,
+}: {
+  defaultValue?: string;
+  onValueChange?: (value: string) => void;
+  value?: string;
+  values: string[];
+}) {
+  const validValues = useMemo(() => new Set(values), [values]);
+  const fallbackValue = defaultValue ?? values.at(0);
+  const initialValue =
+    value ??
+    (defaultValue && validValues.has(defaultValue)
+      ? defaultValue
+      : fallbackValue);
+  const [internalValue, setInternalValue] = useState(initialValue);
+  const isControlled = value !== undefined;
+  const selectedValue = isControlled ? value : internalValue;
+  const safeValue =
+    selectedValue && (validValues.size === 0 || validValues.has(selectedValue))
+      ? selectedValue
+      : fallbackValue;
+
+  useEffect(() => {
+    if (!isControlled && safeValue !== internalValue) {
+      setInternalValue(safeValue);
+    }
+  }, [internalValue, isControlled, safeValue]);
+
+  function setSafeValue(nextValue: string) {
+    const next =
+      validValues.size === 0 || validValues.has(nextValue)
+        ? nextValue
+        : fallbackValue;
+
+    if (!next) {
+      return;
+    }
+
+    if (!isControlled) {
+      setInternalValue(next);
+    }
+
+    onValueChange?.(next);
+  }
+
+  return {
+    safeValue,
+    setSafeValue,
+  };
+}
+
+function Tabs({
+  children,
+  className,
+  defaultValue,
+  items,
+  onValueChange,
+  value,
+  ...props
+}: TabsRootProps) {
+  const values = useTabValues({ children, items });
+  const labels = useMemo(() => {
+    const collected = collectTabLabels(children);
+
+    for (const item of items ?? []) {
+      collected[escapeTabValue(item)] ??= item;
+    }
+
+    return collected;
+  }, [children, items]);
+  const { safeValue, setSafeValue } = useSafeTabValue({
+    defaultValue,
+    onValueChange,
+    value,
+    values,
+  });
+
+  return (
+    <MdxTabLabelsContext value={labels}>
+      <ControlledFumadocsTabs
+        {...props}
+        className={cn('bg-fd-card', className)}
+        defaultValue={defaultValue}
+        items={items}
+        onValueChange={setSafeValue}
+        value={safeValue}
+      >
+        {children}
+      </ControlledFumadocsTabs>
+    </MdxTabLabelsContext>
+  );
+}
+
+function getCodeBlockTabsStateKey({
+  groupId,
+  values,
+}: {
+  groupId?: string;
+  values: string[];
+}) {
+  if (groupId) {
+    return `group:${groupId}`;
+  }
+
+  if (values.length === 0) {
+    return undefined;
+  }
+
+  return `values:${[...values].sort().join('\u001f')}`;
+}
+
+function assignRef<T>(ref: Ref<T> | undefined, value: T | null) {
+  if (typeof ref === 'function') {
+    ref(value);
+    return;
+  }
+
+  if (ref) {
+    (ref as { current: T | null }).current = value;
+  }
+}
+
+const VERSION_HEADING_SELECTOR =
+  'h2[data-accordion-value], h3[data-accordion-value], h4[data-accordion-value]';
+
+function Accordions({
+  defaultValue,
+  openFirst = false,
+  onClickCapture,
+  onValueChange,
+  ref,
+  type = 'single',
+  value,
+  children,
+  ...props
+}: AccordionsRootProps) {
+  const rootId = useId();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const appliedDefaultValueRef = useRef(false);
+  const pendingScrollAnchorRef = useRef<{
+    element: HTMLElement;
+    top: number;
+  } | null>(null);
+  const pageState = useContext(AccordionPageStateContext);
+  const setActiveAccordion = pageState?.setActiveAccordion;
+  const firstValue = useMemo(
+    () => (openFirst ? firstVersionValue(children) : undefined),
+    [children, openFirst],
+  );
+  const defaultSingleValue =
+    typeof defaultValue === 'string' ? defaultValue : undefined;
+  const defaultMultipleValue = useMemo(
+    () =>
+      Array.isArray(defaultValue)
+        ? defaultValue
+        : typeof defaultValue === 'string'
+          ? [defaultValue]
+          : firstValue
+            ? [firstValue]
+            : [],
+    [defaultValue, firstValue],
+  );
+  const controlledSingleValue = typeof value === 'string' ? value : undefined;
+  const controlledMultipleValue = Array.isArray(value) ? value : undefined;
+  const [localValue, setLocalValue] = useState(defaultSingleValue ?? '');
+  const [localMultipleValue, setLocalMultipleValue] =
+    useState(defaultMultipleValue);
+  const appliedDefaultResetKeyRef = useRef(0);
+  const setRootRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      rootRef.current = element;
+      assignRef(ref as Ref<HTMLDivElement> | undefined, element);
+    },
+    [ref],
+  );
+
+  const pageControlledValue =
+    pageState?.activeAccordion?.rootId === rootId
+      ? pageState.activeAccordion.value
+      : '';
+  const selectedValue =
+    controlledSingleValue ?? (pageState ? pageControlledValue : localValue);
+  const selectedMultipleValue = controlledMultipleValue ?? localMultipleValue;
+
+  const captureVersionScrollAnchor = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (event.target instanceof Element) {
+        const heading = event.target.closest<HTMLElement>(
+          VERSION_HEADING_SELECTOR,
+        );
+
+        if (heading && rootRef.current?.contains(heading)) {
+          pendingScrollAnchorRef.current = {
+            element: heading,
+            top: heading.getBoundingClientRect().top,
+          };
+        }
+      }
+
+      onClickCapture?.(event);
+    },
+    [onClickCapture],
+  );
+
+  const restoreVersionScrollAnchor = useCallback(() => {
+    const anchor = pendingScrollAnchorRef.current;
+
+    if (!anchor?.element.isConnected) {
+      pendingScrollAnchorRef.current = null;
+      return;
+    }
+
+    const delta = anchor.element.getBoundingClientRect().top - anchor.top;
+
+    if (Math.abs(delta) < 0.5) {
+      return;
+    }
+
+    const scrollContainer = getActiveDocsScrollContainer();
+
+    if (scrollContainer) {
+      scrollContainer.scrollTo({
+        behavior: 'auto',
+        top: scrollContainer.scrollTop + delta,
+      });
+    } else {
+      window.scrollTo({
+        behavior: 'auto',
+        top: window.scrollY + delta,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (type !== 'single' || !pendingScrollAnchorRef.current) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      if (selectedValue !== undefined) {
+        restoreVersionScrollAnchor();
+      }
+    });
+    const finalCorrection = window.setTimeout(() => {
+      if (selectedValue !== undefined) {
+        restoreVersionScrollAnchor();
+      }
+      pendingScrollAnchorRef.current = null;
+    }, 300);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(finalCorrection);
+    };
+  }, [restoreVersionScrollAnchor, selectedValue, type]);
+
+  useEffect(() => {
+    if (
+      pageState &&
+      pageState.accordionResetKey !== appliedDefaultResetKeyRef.current
+    ) {
+      appliedDefaultValueRef.current = false;
+      appliedDefaultResetKeyRef.current = pageState.accordionResetKey;
+      if (type === 'multiple' && openFirst && value === undefined) {
+        setLocalMultipleValue(defaultMultipleValue);
+      }
+    }
+
+    if (
+      !(
+        type === 'single' &&
+        pageState &&
+        defaultSingleValue &&
+        !appliedDefaultValueRef.current &&
+        value === undefined
+      )
+    ) {
+      return;
+    }
+
+    appliedDefaultValueRef.current = true;
+    pageState.setActiveAccordion(
+      (current) => current ?? { rootId, value: defaultSingleValue },
+    );
+  }, [
+    defaultMultipleValue,
+    defaultSingleValue,
+    openFirst,
+    pageState,
+    rootId,
+    type,
+    value,
+  ]);
+
+  const applyHash = useEffectEvent((url: string) => {
+    const id = url.startsWith('#') ? url.substring(1) : url;
+    const element = rootRef.current;
+
+    if (!element || id.length === 0) {
+      return;
+    }
+
+    const selected = findDocsHeadingForHash(`#${id}`);
+
+    if (!selected || !element.contains(selected)) {
+      return;
+    }
+
+    const accordionContent = selected.closest<HTMLElement>(
+      '[role="region"][data-toc-hidden="true"]',
+    );
+    const accordionHeading =
+      accordionContent?.parentElement?.querySelector<HTMLElement>(
+        VERSION_HEADING_SELECTOR,
+      );
+    const sectionHeadings = selected.matches('section')
+      ? selected.querySelectorAll<HTMLElement>(VERSION_HEADING_SELECTOR)
+      : [];
+    const hashValue =
+      selected.getAttribute('data-accordion-value') ??
+      accordionHeading?.getAttribute('data-accordion-value') ??
+      (sectionHeadings.length === 1
+        ? sectionHeadings[0].getAttribute('data-accordion-value')
+        : null);
+
+    if (!hashValue) {
+      return;
+    }
+
+    if (type === 'multiple') {
+      const nextValues = selectedMultipleValue.includes(hashValue)
+        ? selectedMultipleValue
+        : [...selectedMultipleValue, hashValue];
+
+      if (value === undefined) {
+        setLocalMultipleValue(nextValues);
+      }
+
+      onValueChange?.(nextValues);
+      return;
+    }
+
+    if (value === undefined) {
+      if (setActiveAccordion) {
+        setActiveAccordion((current) =>
+          current?.rootId === rootId && current.value === hashValue
+            ? current
+            : { rootId, value: hashValue },
+        );
+      } else {
+        setLocalValue(hashValue);
+      }
+    }
+
+    onValueChange?.(hashValue);
+  });
+
+  useEffect(() => {
+    if (type !== 'single' && type !== 'multiple') {
+      return;
+    }
+
+    const applyCurrentHash = () => {
+      applyHash(window.location.hash);
+    };
+    const handleHashTarget = (event: Event) => {
+      const url = (event as CustomEvent<string>).detail;
+      applyHash(typeof url === 'string' ? url : window.location.hash);
+    };
+
+    applyCurrentHash();
+    window.addEventListener('hashchange', applyCurrentHash);
+    window.addEventListener(DOCS_HASH_TARGET_EVENT, handleHashTarget);
+
+    return () => {
+      window.removeEventListener('hashchange', applyCurrentHash);
+      window.removeEventListener(DOCS_HASH_TARGET_EVENT, handleHashTarget);
+    };
+  }, [type]);
+
+  function handleValueChange(nextValue: string | string[]) {
+    if (type === 'multiple') {
+      const nextMultipleValue = Array.isArray(nextValue) ? nextValue : [];
+
+      if (value === undefined) {
+        setLocalMultipleValue(nextMultipleValue);
+      }
+
+      onValueChange?.(nextMultipleValue);
+      return;
+    }
+
+    const nextSingleValue = typeof nextValue === 'string' ? nextValue : '';
+
+    if (value === undefined) {
+      if (pageState) {
+        pageState.setActiveAccordion(
+          nextSingleValue ? { rootId, value: nextSingleValue } : undefined,
+        );
+      } else {
+        setLocalValue(nextSingleValue);
+      }
+    }
+
+    onValueChange?.(nextSingleValue);
+  }
+
+  const accordionRoot =
+    type === 'multiple' ? (
+      <ControlledFumadocsAccordions
+        {...props}
+        defaultValue={defaultMultipleValue}
+        onClickCapture={onClickCapture}
+        onValueChange={handleValueChange}
+        ref={setRootRef}
+        type={type}
+        value={selectedMultipleValue}
+      >
+        {children}
+      </ControlledFumadocsAccordions>
+    ) : (
+      <ControlledFumadocsAccordions
+        {...props}
+        defaultValue={defaultSingleValue}
+        onClickCapture={captureVersionScrollAnchor}
+        onValueChange={handleValueChange}
+        ref={setRootRef}
+        type={type}
+        value={selectedValue}
+      >
+        {children}
+      </ControlledFumadocsAccordions>
+    );
+
+  return (
+    <MdxAccordionRootContext value>{accordionRoot}</MdxAccordionRootContext>
+  );
+}
+
+function CodeBlockTabs({
+  children,
+  className,
+  defaultValue,
+  groupId,
+  onValueChange,
+  value,
+  ...props
+}: CodeBlockTabsRootProps) {
+  const pageState = useContext(AccordionPageStateContext);
+  const values = useTabValues({ children });
+  const stateKey = useMemo(
+    () => getCodeBlockTabsStateKey({ groupId, values }),
+    [groupId, values],
+  );
+  const sharedValue =
+    value === undefined && stateKey
+      ? pageState?.codeBlockTabValues[stateKey]
+      : undefined;
+  const handleValueChange = useCallback(
+    (nextValue: string) => {
+      captureDocsCodeTabChanged({
+        locale: 'en',
+        nextLanguage: nextValue,
+      });
+
+      if (value === undefined && stateKey) {
+        pageState?.setCodeBlockTabValues((current) => {
+          if (current[stateKey] === nextValue) {
+            return current;
+          }
+
+          return {
+            ...current,
+            [stateKey]: nextValue,
+          };
+        });
+      }
+
+      onValueChange?.(nextValue);
+    },
+    [onValueChange, pageState, stateKey, value],
+  );
+  const { safeValue, setSafeValue } = useSafeTabValue({
+    defaultValue,
+    onValueChange: handleValueChange,
+    value: value ?? sharedValue,
+    values,
+  });
+
+  useEffect(() => {
+    if (!(pageState && stateKey && value === undefined && safeValue)) {
+      return;
+    }
+
+    pageState.setCodeBlockTabValues((current) => {
+      if (current[stateKey] !== undefined) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [stateKey]: safeValue,
+      };
+    });
+  }, [pageState, safeValue, stateKey, value]);
+
+  return (
+    <FumadocsCodeBlockTabs
+      {...props}
+      className={cn('bg-fd-card', className)}
+      defaultValue={defaultValue}
+      groupId={groupId}
+      onValueChange={setSafeValue}
+      value={safeValue}
+    >
+      <CodeBlockTabsValueContext value={safeValue}>
+        {children}
+      </CodeBlockTabsValueContext>
+    </FumadocsCodeBlockTabs>
+  );
+}
+
+function Pre({ className, ...props }: PreProps) {
+  return (
+    <FumadocsCodeBlock
+      {...props}
+      data-line-numbers
+      className={cn('bg-fd-card shadow-none', className)}
+      viewportProps={{
+        ...props.viewportProps,
+        className: cn(
+          'overflow-x-hidden overflow-y-auto',
+          props.viewportProps?.className,
+        ),
+      }}
+    >
+      <FumadocsCodeBlockPre className="w-full max-w-full min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere] break-words">
+        {props.children}
+      </FumadocsCodeBlockPre>
+    </FumadocsCodeBlock>
+  );
+}
+
+function TabsContent({
+  children,
+  className,
+  ...props
+}: ComponentProps<typeof FumadocsTabsContent>) {
+  const tabValue = typeof props.value === 'string' ? props.value : undefined;
+  const tabLabels = useContext(MdxTabLabelsContext);
+  const tabLabel = tabValue ? tabLabels[tabValue] : undefined;
+
+  return (
+    <MdxTabLabelContext value={tabLabel}>
+      <FumadocsTabsContent
+        className={cn(
+          '[&>figure:only-child]:bg-fd-card [&>figure:only-child]:shadow-none',
+          className,
+        )}
+        forceMount
+        {...props}
+      >
+        {children}
+      </FumadocsTabsContent>
+    </MdxTabLabelContext>
+  );
+}
+
+type MdxHeadingLevel = 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
+
+function TabAwareHeading({
+  as,
+  children,
+  ...props
+}: ComponentProps<'h2'> & { as: MdxHeadingLevel }) {
+  const tabLabel = useContext(MdxTabLabelContext);
+  const Heading = (defaultMdxComponents[as] ?? as) as ComponentType<
+    ComponentProps<'h2'>
+  >;
+
+  return (
+    <Heading {...props}>
+      {children}
+      {tabLabel ? <span className="sr-only"> ({tabLabel})</span> : null}
+    </Heading>
+  );
+}
+
+function CodeBlockTabsList({
+  className,
+  ...props
+}: ComponentProps<typeof FumadocsCodeBlockTabsList>) {
+  return (
+    <FumadocsCodeBlockTabsList
+      className={cn('bg-fd-card', className)}
+      {...props}
+    />
+  );
+}
+
+function CodeBlockTab({
+  className,
+  value,
+  ...props
+}: ComponentProps<typeof FumadocsCodeBlockTab>) {
+  const selectedValue = useContext(CodeBlockTabsValueContext);
+  const isInactive = selectedValue !== undefined && selectedValue !== value;
+
+  return (
+    <FumadocsCodeBlockTab
+      className={cn(
+        '[&>figure]:m-0 [&>figure]:rounded-none [&>figure]:border-0 [&>figure]:bg-fd-card [&>figure]:shadow-none',
+        className,
+      )}
+      forceMount
+      hidden={isInactive}
+      value={value}
+      {...props}
+    />
+  );
+}
+
+function CommandBlock({
+  code,
+  language = 'bash',
+}: {
+  code: string;
+  language?: string;
+}) {
+  const lineKeys = new Map<string, number>();
+  const lines = code
+    .replace(/\n$/, '')
+    .split('\n')
+    .map((line) => {
+      const occurrence = (lineKeys.get(line) ?? 0) + 1;
+      lineKeys.set(line, occurrence);
+
+      return {
+        id: `${line}:${occurrence}`,
+        line,
+      };
+    });
+
+  return (
+    <Pre className={cn('shiki', `language-${language}`)}>
+      <code className={cn('language-code', `language-${language}`)}>
+        {lines.map(({ id, line }) => (
+          <span className="line" key={id}>
+            {line}
+          </span>
+        ))}
+      </code>
+    </Pre>
+  );
+}
+
+function ParameterList({
+  children,
+  className,
+  nullable,
+  optional,
+  required,
+  title,
+  ...props
+}: ParameterListProps) {
+  const requiredState = getRequiredState({ optional, required });
+
+  return (
+    <section
+      className={cn(
+        'not-prose my-6 overflow-hidden rounded-lg border border-fd-border bg-fd-card text-sm shadow-sm',
+        className,
+      )}
+      data-parameter-list=""
+      {...props}
+    >
+      {title || requiredState || nullable ? (
+        <div className="flex flex-wrap items-center gap-2 border-fd-border border-b bg-fd-muted/35 px-4 py-3 font-semibold text-fd-foreground">
+          {title ? <span>{title}</span> : null}
+          <ParameterBadges requiredState={requiredState} nullable={nullable} />
+        </div>
+      ) : null}
+      <div className="divide-y divide-fd-border">{children}</div>
+    </section>
+  );
+}
+
+function ParameterBadges({
+  nullable,
+  requiredState,
+}: {
+  nullable?: boolean;
+  requiredState: 'required' | 'optional' | null;
+}) {
+  if (!requiredState && !nullable) {
+    return null;
+  }
+
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {requiredState ? (
+        <span
+          className={cn(
+            'rounded border px-1.5 py-0.5 text-[0.68rem] font-medium',
+            requiredState === 'required'
+              ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300'
+              : 'border-fd-border bg-fd-muted/60 text-fd-muted-foreground',
+          )}
+        >
+          {requiredState}
+        </span>
+      ) : null}
+      {nullable ? (
+        <span className="rounded border border-fd-border bg-fd-muted/60 px-1.5 py-0.5 text-[0.68rem] font-medium text-fd-muted-foreground">
+          nullable
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function Parameter({
+  children,
+  className,
+  defaultValue,
+  name,
+  nullable,
+  optional,
+  possibleValues,
+  required,
+  type,
+  ...props
+}: ParameterProps) {
+  const requiredState = getRequiredState({ optional, required });
+  const childNodes = Children.toArray(children);
+  const descriptionChildren = childNodes.filter(
+    (child) => !isNestedParameterBlock(child) && !isBlankTextNode(child),
+  );
+  const nestedParameters = childNodes.filter(isNestedParameterBlock);
+  const parameterLabel = getPlainTextLabel(name);
+
+  return (
+    <div
+      className={cn('group/parameter', className)}
+      data-parameter-item=""
+      {...props}
+    >
+      <div
+        className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,16rem)_1fr]"
+        data-parameter-main=""
+      >
+        <div className="min-w-0 space-y-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {name ? (
+              <code className="rounded bg-fd-muted px-1.5 py-0.5 font-mono text-[0.82rem] text-fd-foreground">
+                {name}
+              </code>
+            ) : null}
+            {type ? (
+              <span className="rounded border border-fd-border bg-fd-background px-1.5 py-0.5 font-mono text-[0.75rem] text-fd-muted-foreground">
+                {type}
+              </span>
+            ) : null}
+          </div>
+          <ParameterBadges requiredState={requiredState} nullable={nullable} />
+        </div>
+        <div
+          className="min-w-0 space-y-3 text-fd-muted-foreground [&>:first-child]:mt-0 [&>:last-child]:mb-0 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5"
+          data-parameter-description=""
+        >
+          {defaultValue || possibleValues ? (
+            <dl className="space-y-2 text-xs">
+              {defaultValue ? (
+                <div className="grid gap-1.5 sm:grid-cols-[max-content_minmax(0,1fr)]">
+                  <dt className="font-medium text-fd-foreground">
+                    Default value
+                  </dt>
+                  <dd className="min-w-0 break-words font-mono">
+                    {defaultValue}
+                  </dd>
+                </div>
+              ) : null}
+              {possibleValues ? (
+                <div className="grid gap-1.5 sm:grid-cols-[max-content_minmax(0,1fr)]">
+                  <dt className="font-medium text-fd-foreground">
+                    Possible values
+                  </dt>
+                  <dd className="min-w-0">
+                    {renderPossibleValues(possibleValues, parameterLabel)}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : null}
+          {descriptionChildren}
+        </div>
+      </div>
+      {nestedParameters.length > 0 ? (
+        <section
+          aria-label={
+            parameterLabel
+              ? `Nested parameters for ${parameterLabel}`
+              : 'Nested parameters'
+          }
+          className="border-fd-border/70 border-t bg-fd-muted/20 px-4 pb-4 pt-3"
+          data-parameter-children=""
+        >
+          <div className="border-fd-border/80 border-l pl-3 sm:ml-4 sm:pl-4">
+            <div className="overflow-hidden rounded-md border border-fd-border bg-fd-background/80 shadow-sm">
+              <div className="divide-y divide-fd-border">
+                {nestedParameters}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function renderPossibleValues(
+  possibleValues: ReactNode,
+  parameterLabel?: string,
+) {
+  const ariaLabel = parameterLabel
+    ? `Possible values for ${parameterLabel}`
+    : 'Possible values';
+
+  if (typeof possibleValues === 'string') {
+    const values = getPossibleValueItems(possibleValues);
+
+    if (values.length > 0) {
+      return (
+        <ul
+          aria-label={ariaLabel}
+          className="m-0 flex min-w-0 list-none flex-wrap gap-1.5 p-0"
+          data-parameter-possible-values=""
+        >
+          {values.map((value) => (
+            <li key={value}>
+              <code className="rounded border border-fd-border bg-fd-muted/60 px-1.5 py-0.5 font-mono text-[0.72rem] text-fd-foreground">
+                {value}
+              </code>
+            </li>
+          ))}
+        </ul>
+      );
+    }
+  }
+
+  return (
+    <span className="break-words font-mono" data-parameter-possible-values="">
+      {possibleValues}
+    </span>
+  );
+}
+
+function getPossibleValueItems(possibleValues: string) {
+  const trimmed = possibleValues.trim();
+
+  if (isBracketedPossibleValue(trimmed)) {
+    return [trimmed];
+  }
+
+  return trimmed
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function isBracketedPossibleValue(value: string) {
+  return (
+    (value.startsWith('[') && value.endsWith(']')) ||
+    (value.startsWith('(') && value.endsWith(')'))
+  );
+}
+
+function isNestedParameterBlock(
+  child: ReactNode,
+): child is ReactElement<ParameterProps | ParameterListProps> {
+  return (
+    isValidElement(child) &&
+    (child.type === Parameter || child.type === ParameterList)
+  );
+}
+
+function isBlankTextNode(child: ReactNode) {
+  return typeof child === 'string' && child.trim().length === 0;
+}
+
+function getPlainTextLabel(value: ReactNode) {
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value);
+  }
+
+  return undefined;
+}
+
+export { Parameter, ParameterList };
+
+function getRequiredState({
+  optional,
+  required,
+}: {
+  optional?: boolean;
+  required?: boolean;
+}) {
+  if (required) {
+    return 'required';
+  }
+
+  if (optional || required === false) {
+    return 'optional';
+  }
+
+  return null;
+}
+
+function createDocsAnchor(contentPath?: string) {
+  function DocsAnchor({
+    href,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement>) {
+    const normalized =
+      typeof href === 'string'
+        ? normalizeDocsHref(href, { contentPath })
+        : null;
+    const normalizedHref = normalized?.href ?? href;
+
+    if (normalized && shouldUseRouterLink(normalized, props)) {
+      return <RouterFumadocsAnchor {...props} to={normalized.href} />;
+    }
+
+    return <FumadocsAnchor href={normalizedHref} {...props} />;
+  }
+
+  return DocsAnchor;
+}
+
+function createLegacyDocsLink(contentPath?: string) {
+  const DocsAnchor = createDocsAnchor(contentPath);
+
+  function LegacyDocsLink({
+    to,
+    ...props
+  }: Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
+    to?: string;
+  }) {
+    return <DocsAnchor href={to} {...props} />;
+  }
+
+  return LegacyDocsLink;
+}
+
+function createDocsCard(contentPath?: string) {
+  function DocsCard({ className, href, ...props }: DocsCardProps) {
+    const normalized =
+      typeof href === 'string'
+        ? normalizeDocsHref(href, { contentPath })
+        : null;
+    const normalizedHref = normalized?.href ?? href;
+    const cardClassName = cn(href && 'docs-card-link', className);
+
+    if (normalized && shouldUseRouterLink(normalized, props)) {
+      return (
+        <RouterFumadocsCard
+          {...props}
+          className={cardClassName}
+          to={normalized.href}
+        />
+      );
+    }
+
+    return (
+      <FumadocsCard
+        {...props}
+        className={cardClassName}
+        href={normalizedHref}
+      />
+    );
+  }
+
+  return DocsCard;
+}
+
+function createPlanCardsComponent(contentPath?: string) {
+  function DocsPlanCards(props: ComponentProps<typeof PlanCards>) {
+    return <PlanCards {...props} contentPath={contentPath} />;
+  }
+
+  return DocsPlanCards;
+}
+
+function createPricingCardsComponent(contentPath?: string) {
+  function DocsPricingCards(props: ComponentProps<typeof PricingCards>) {
+    return <PricingCards {...props} contentPath={contentPath} />;
+  }
+
+  return DocsPricingCards;
+}
+
+function shouldUseRouterLink(
+  normalized: NormalizedDocsHref,
+  props:
+    | AnchorHTMLAttributes<HTMLAnchorElement>
+    | (DocsCardProps & { external?: boolean }),
+) {
+  if (
+    props.download !== undefined ||
+    props.target !== undefined ||
+    ('external' in props && props.external)
+  ) {
+    return false;
+  }
+
+  if (normalized.kind === 'internal-doc') {
+    return true;
+  }
+
+  return normalized.kind === 'root' && isDocsRouteHref(normalized.href);
+}
+
+function isDocsRouteHref(href: string) {
+  const [path] = href.split(/[?#]/, 1);
+
+  return (
+    path === '/en' ||
+    path.startsWith('/en/') ||
+    path === '/zh-CN' ||
+    path.startsWith('/zh-CN/')
+  );
+}
+
+function ZoomableImage({ alt = '', src, ...props }: ComponentProps<'img'>) {
+  if (typeof src !== 'string' || src.length === 0) {
+    return <FumadocsImage alt={alt} src={src} {...props} />;
+  }
+
+  const title = alt || 'Documentation image';
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          aria-label={`Zoom image: ${title}`}
+          className="block cursor-zoom-in"
+          type="button"
+        >
+          <FumadocsImage alt={alt} src={src} {...props} />
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[calc(100vh-2rem)] w-fit max-w-[calc(100vw-2rem)] justify-items-center border-0 bg-transparent p-0 shadow-none sm:max-w-[calc(100vw-2rem)]">
+        <DialogTitle className="sr-only">{title}</DialogTitle>
+        <DialogDescription className="sr-only">
+          Enlarged documentation image preview.
+        </DialogDescription>
+        <img
+          alt={alt}
+          className="max-h-[calc(100vh-4rem)] max-w-[calc(100vw-4rem)] rounded-md object-contain shadow-2xl"
+          src={src}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function getMDXComponents(
+  components?: MDXComponents,
+  context?: MDXContext,
+) {
+  const DocsPlanCards = createPlanCardsComponent(context?.contentPath);
+  const DocsPricingCards = createPricingCardsComponent(context?.contentPath);
+
+  return {
+    ...defaultMdxComponents,
+    table:
+      context?.contentPath === IM_PRICING_DETAILS_CONTENT_PATH
+        ? createDocsTableComponent(context.contentPath)
+        : defaultMdxComponents.table,
+    img: ZoomableImage,
+    h2: (props) => <TabAwareHeading as="h2" {...props} />,
+    h3: (props) => <TabAwareHeading as="h3" {...props} />,
+    h4: (props) => <TabAwareHeading as="h4" {...props} />,
+    h5: (props) => <TabAwareHeading as="h5" {...props} />,
+    h6: (props) => <TabAwareHeading as="h6" {...props} />,
+    a: createDocsAnchor(context?.contentPath),
+    Link: createLegacyDocsLink(context?.contentPath),
+    Card: createDocsCard(context?.contentPath),
+    CommandBlock,
+    Tabs,
+    Tab: FumadocsTab,
+    TabsContent,
+    TabsList: FumadocsTabsList,
+    TabsTrigger: FumadocsTabsTrigger,
+    CodeBlockTabs,
+    CodeBlockTabsList,
+    CodeBlockTab,
+    pre: Pre,
+    ParameterList,
+    Parameter,
+    Accordion,
+    Accordions,
+    File,
+    Files,
+    Folder,
+    Step,
+    Steps,
+    RTCMinutesCalculator,
+    PlanCards: DocsPlanCards,
+    PricingCards: DocsPricingCards,
+    PlatformInline,
+    _PlatformProcessedMarker: PlatformProcessedMarker,
+    PlatformStructured,
+    _PlatformTabsGroup: PlatformTabsGroup,
+    _PlatformPanel: PlatformPanel,
+    ...components,
+  } satisfies MDXComponents;
+}
+
+export const useMDXComponents = getMDXComponents;
+
+declare global {
+  type MDXProvidedComponents = ReturnType<typeof getMDXComponents>;
+}

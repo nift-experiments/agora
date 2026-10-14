@@ -1,0 +1,12 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "set-up-and-build-your-first-app",
+    "authenticate-users",
+    "draw-and-edit-content",
+    "display-files-and-manage-scenes",
+    "manage-room-state-and-events",
+    "migrate-and-accelerate-development"
+  ]
+}

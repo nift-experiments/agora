@@ -1,0 +1,12 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "set-up-authentication",
+    "start-a-recording",
+    "customize-the-recording",
+    "handle-events",
+    "process-recorded-files",
+    "best-practices"
+  ]
+}

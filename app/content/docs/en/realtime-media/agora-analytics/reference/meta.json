@@ -1,0 +1,18 @@
+{
+  "title": "Reference",
+  "pages": [
+    "pricing",
+    "!core-concepts",
+    "agora-console-rest-api",
+    "release-notes",
+    "supported-platforms",
+    "!billing-policies",
+    "call-search-manual",
+    "call-search-terms",
+    "!downloads",
+    "!firewall",
+    "!restful-authentication",
+    "!glossary",
+    "!security"
+  ]
+}

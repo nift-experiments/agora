@@ -1,0 +1,11 @@
+import { resolve } from 'node:path';
+const root=resolve(import.meta.dir,'..');
+const args=process.argv.slice(2);
+const child=Bun.spawn([process.execPath,'tools/prepare.ts',...args],{cwd:root,stdout:'inherit',stderr:'inherit'});
+if(await child.exited)process.exit(1);
+console.log('[nift-pipeline-start] composition');
+const compositionStart=performance.now();
+const compose=Bun.spawn(['nift','build',...(args.includes('--all')?['--all']:[])],{cwd:root,env:{...process.env,NIFT_PIPELINE_PREPARED:'1'},stdout:'inherit',stderr:'inherit'});
+const code=await compose.exited;
+console.log(`[nift-pipeline] composition: ${((performance.now()-compositionStart)/1000).toFixed(3)}s`);
+process.exit(code);

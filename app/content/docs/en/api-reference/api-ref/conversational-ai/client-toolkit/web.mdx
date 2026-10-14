@@ -1,0 +1,746 @@
+---
+title: Web toolkit API
+description: Web toolkit API reference for Conversational AI Engine.
+---
+
+## Installation
+
+Add the toolkit to your project using a package manager or by copying the source code.
+
+<Tabs>
+<TabsList>
+  <TabsTrigger value="package">Package manager</TabsTrigger>
+  <TabsTrigger value="source">Source code</TabsTrigger>
+</TabsList>
+
+<TabsContent value="package">
+
+Install the toolkit package for your project type:
+
+- Vanilla JS or TypeScript:
+
+  ```bash
+  pnpm add agora-agent-client-toolkit@2.9.0
+  ```
+
+- React:
+
+  ```bash
+  pnpm add agora-agent-client-toolkit@2.9.0 agora-agent-client-toolkit-react@2.9.0
+  ```
+
+</TabsContent>
+
+<TabsContent value="source">
+
+Copy the [`conversational-ai`](https://github.com/AgoraIO-Conversational-AI/agent-client-toolkit-ts/tree/main/packages/conversational-ai) package into your project, then import the toolkit before calling its APIs.
+
+</TabsContent>
+</Tabs>
+
+The [Web toolkit API](https://github.com/AgoraIO-Community/Conversational-AI-Demo/tree/main/Web/Scenes/VoiceAgent/src/conversational-ai-api) provides the following classes and methods.
+
+## API overview
+
+| API                 | Description               |
+|---------------------|------------------------------------|
+| [`chat`](#chat) | Send chat messages to a conversational agent.  |
+| [`getInstance`](#getinstance)        | Gets a singleton instance of `ConversationalAIAPI`.                 |
+| [`init`](#init)     | Initializes the `ConversationalAIAPI` singleton instance.                |
+| [`subscribeMessage`](#subscribemessage)  | Subscribes to the messaging channel to get real-time updates.               |
+| [`unsubscribe`](#unsubscribe)| Unsubscribes from the message channel and cleans up resources.                   |
+| [`interrupt`](#interrupt)         | Sends an interrupt message to the specified agent user.                     |
+| [`manualSOS`](#manualsos) | Sends a manual Start of Speech (SoS) signal to the agent. |
+| [`manualEOS`](#manualeos) | Sends a manual End of Speech (EoS) signal to the agent. |
+| [`speak`](#speak) | Makes the agent speak text directly, bypassing the LLM. |
+| [`think`](#think) | Injects text as user input for the LLM to process. |
+| [`destroy`](#destroy)           | Destroys the `ConversationalAIAPI` instance and cleans up resources.         |
+
+## ConversationalAIAPI class
+
+Class for managing conversational AI engine interactions through Agora's RTC and RTM services.
+
+### `chat`
+
+Send chat messages to a conversational agent.
+
+:::info
+Since v1.7
+:::
+
+```javascript
+public async chat(agentUserId: string, message: IChatMessageText | IChatMessageImage)
+```
+
+#### Sample code
+
+```js
+// Send an image message
+const imageMessage: IChatMessageImage = {
+  messageType: EChatMessageType.IMAGE,
+  imageData: urlImageData
+};
+await api.chat("user123", imageMessage);
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `agentUserId`   | `string`                                    | Unique identifier of the agent.                                               |
+| `message`       | `IChatMessageText` \| `IChatMessageImage`   | Chat message to be sent. Should be of type `IChatMessageImage`, see details in [`IChatMessageImage`](#ichatmessageimage). |
+
+**Return Value**  
+If the method call succeeds, a Promise is returned, indicating the result of the message sending.
+
+### `getInstance`
+
+Gets a singleton instance of `ConversationalAIAPI`. This method ensures that only one instance exists throughout the entire application lifecycle.
+
+```javascript
+public static getInstance()
+```
+
+:::info
+- You must call [`init`](#init) before using this method.
+- If not initialized, an error is thrown.
+:::
+
+**Return Value:**
+If the method call succeeds, a `ConversationalAIAPI` instance is returned. If not initialized, a `NotFoundError` exception is thrown.
+
+### `init`
+
+Initializes the `ConversationalAIAPI` singleton instance.
+
+```javascript
+public static async init(cfg: IConversationalAIAPIConfig): Promise<ConversationalAIAPI>
+```
+
+This method sets the RTC and RTM engines, rendering mode, and logging options. You must call this method before calling other methods of `ConversationalAIAPI`. Awaiting this method returns the initialized instance directly, so a separate call to [`getInstance`](#getinstance) is not required immediately after initialization.
+
+:::info
+- Only one instance can be initialized at a time.
+- If already initialized, an error is thrown.
+:::
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `cfg` | `IConversationalAIAPIConfig` | Configuration object used to initialize the API. See [`IConversationalAIAPIConfig`](#iconversationalaiapiconfig). |
+
+**Return Value:**
+If the method call succeeds, a `Promise` resolving to the initialized `ConversationalAIAPI` instance.
+
+### `subscribeMessage`
+
+Subscribes to the messaging channel to get real-time updates.
+
+```javascript
+public subscribeMessage(channel: string)
+```
+
+This method binds the necessary RTC and RTM events and starts `CovSubRenderController` to process received messages.
+
+:::info
+- You must call [`init`](#init) before using this method.
+- If not initialized, an error is thrown.
+:::
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `channel` | `string` | The channel to subscribe to for messages. |
+
+### `unsubscribe`
+
+Unsubscribes from the message channel and cleans up resources.
+
+```javascript
+public unsubscribe()
+```
+
+:::info
+This method unbinds RTC and RTM events, clears channels, and cleans up `CovSubRenderController`. You must call `subscribeMessage` before calling this method, otherwise an error is thrown.
+:::
+
+### `interrupt`
+
+Sends an interrupt message to the specified agent user.
+
+```javascript
+public async interrupt(agentUserId: string)
+```
+
+:::info
+- You must call [`init`](#init) before using this method.
+- If not initialized or sending fails, an error is thrown.
+:::
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `agentUserId` | `string` | The user ID of the agent user to be interrupted. |
+
+### `manualSOS`
+
+Sends a manual Start of Speech (SoS) signal to the agent over RTM, explicitly declaring that the current user has started speaking.
+
+```javascript
+public async manualSOS(agentUserId: string): Promise<string>
+```
+
+Keep the following in mind when calling this method:
+
+- The component generates `requestId` internally and resolves it in the returned `Promise`. Your app can store this value to correlate it with the server-side event.
+- A resolved `Promise` only indicates that the RTM publish succeeded — it does not indicate that the server processed the request successfully.
+- Whether the server successfully processed the request is determined by the subsequent `USER_MANUAL_SOS_RESULT` or `USER_MANUAL_EOS_RESULT` event. See [`EConversationalAIAPIEvents`](#econversationalaiapievents).
+- The client does not check locally whether manual mode is enabled. Mode validation is handled by the server.
+- Common failure reasons include: the current mode configuration does not allow manual signaling, there is no active user speech to mark, or a manual SoS or EoS that has already taken effect is resubmitted within the same turn.
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `agentUserId` | `string` | Unique identifier of the agent. |
+
+**Return Value**  
+If the method call succeeds, a `Promise<string>` is returned, resolving to the `requestId` for this request. This result only indicates that the RTM publish succeeded.
+
+### `manualEOS`
+
+Sends a manual End of Speech (EoS) signal to the agent over RTM, explicitly declaring that the current user has finished speaking.
+
+```javascript
+public async manualEOS(agentUserId: string): Promise<string>
+```
+
+Keep the following in mind when calling this method:
+
+- The component generates `requestId` internally and resolves it in the returned `Promise`. Your app can store this value to correlate it with the server-side event.
+- A resolved `Promise` only indicates that the RTM publish succeeded — it does not indicate that the server processed the request successfully.
+- Whether the server successfully processed the request is determined by the subsequent `USER_MANUAL_SOS_RESULT` or `USER_MANUAL_EOS_RESULT` event. See [`EConversationalAIAPIEvents`](#econversationalaiapievents).
+- The client does not check locally whether manual mode is enabled. Mode validation is handled by the server.
+- Common failure reasons include: the current mode configuration does not allow manual signaling, there is no active user speech to mark, or a manual SoS or EoS that has already taken effect is resubmitted within the same turn.
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `agentUserId` | `string` | Unique identifier of the agent. |
+
+**Return Value**  
+If the method call succeeds, a `Promise<string>` is returned, resolving to the `requestId` for this request. This result only indicates that the RTM publish succeeded.
+
+### `speak`
+
+Bypasses the LLM and makes the agent speak text directly through its TTS pipeline.
+
+This method requires RTM. A resolved `Promise` only indicates that the RTM message was published successfully, not that the agent has finished speaking.
+
+```javascript
+public async speak(agentUserId: string, message: SpeakMessage): Promise<void>
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `agentUserId` | `string` | Unique identifier of the agent. |
+| `message` | `SpeakMessage` | The text to speak and its playback behavior. See [`SpeakMessage`](#speakmessage). |
+
+**Return Value**  
+If the method call succeeds, a `Promise<void>` is returned.
+
+### `think`
+
+Injects text as user input into the conversation for the LLM to process.
+
+This method requires RTM. A resolved `Promise` only indicates that the RTM message was published successfully, not that the LLM has finished processing the instruction.
+
+```javascript
+public async think(agentUserId: string, message: ThinkMessage): Promise<void>
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `agentUserId` | `string` | Unique identifier of the agent. |
+| `message` | `ThinkMessage` | The instruction text, state actions, and custom metadata. See [`ThinkMessage`](#thinkmessage). |
+
+**Return Value**  
+If the method call succeeds, a `Promise<void>` is returned.
+
+### `destroy`
+
+Destroys the `ConversationalAIAPI` instance and cleans up resources.
+
+```javascript
+public destroy(): void
+```
+
+:::info
+- You must call `unsubscribe` before calling this method.
+- If not initialized, an error is thrown.
+:::
+
+## IConversationalAIAPIEventHandlers interface
+
+Event handler interface for the Conversational AI API module.
+
+A set of event handlers that respond to various events emitted by the conversational AI system, including agent state changes, interruptions, performance metrics, errors, and transcription updates.
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `agentUserId` | `string` | Unique identifier for the AI agent. |
+| `event` | `TStateChangeEvent \| { turnID: number; timestamp: number } \| TUserManualSosEvent \| TUserManualEosEvent \| TAgentManualEosEvent` | Event data. The type depends on the event type. See [`TStateChangeEvent`](#tstatechangeevent), [`TUserManualSosEvent`](#tusermanualsosevent), [`TUserManualEosEvent`](#tusermanualeosevent), and [`TAgentManualEosEvent`](#tagentmanualeosevent). |
+| `metrics` | `TAgentMetric` | Performance indicator data of the agent. See [`TAgentMetric`](#tagentmetric). |
+| `error` | `TModuleError` | Error message when an error occurs in the agent. See [`TModuleError`](#tmoduleerror). |
+| `transcription` | `ISubtitleHelperItem<Partial<IUserTranscription \| IAgentTranscription>>[]` | An array of transcripts of the conversation between the user and the agent. See [`ISubtitleHelperItem`](#isubtitlehelperitem). |
+| `message` | `string` | Debug log message string. |
+
+## Types and Interfaces
+
+### `TMessageReceipt`
+
+Message receipt type definition.
+
+:::info
+Since v1.7
+:::
+
+```js
+export type TMessageReceipt = {
+  moduleType: EModuleType
+  messageType: EChatMessageType
+  message: string
+  turnId: number
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `moduleType`    | `EModuleType`        | The type of module sending the message. See [`EModuleType`](#emoduletype).      |
+| `messageType`   | `EChatMessageType`   | The type of message. See [`EChatMessageType`](#echatmessagetype).                    |
+| `message`       | `string`             | The content of the message.                                     |
+| `turnId`        | `number`             | Unique identifier for the conversation turn.
+
+### `TUserManualEventPayload`
+
+Common payload for manual SoS/EoS events.
+
+```typescript
+export type TUserManualEventPayload = {
+  success: boolean
+  requestId: string
+  turnId?: number
+  errorMessage?: string
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `success` | `boolean` | Whether the server successfully processed this manual signal. |
+| `requestId` | `string` | Request ID, corresponding to the `requestId` resolved by `manualSOS` or `manualEOS`. |
+| `turnId` | `number` | The associated conversation turn ID. Omitted if the server's failure event does not include a `turn_id`. |
+| `errorMessage` | `string` | The raw error message returned by the server. Usually omitted on success. |
+
+### `TUserManualSosEvent`
+
+Represents a manual SoS event.
+
+```typescript
+export type TUserManualSosEvent = {
+  eventId: string
+  timestamp: number
+  payload: TUserManualEventPayload
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `eventId` | `string` | Unique event ID. |
+| `timestamp` | `number` | Event timestamp in milliseconds. |
+| `payload` | `TUserManualEventPayload` | Event payload. See [`TUserManualEventPayload`](#tusermanualeventpayload). |
+
+### `TUserManualEosEvent`
+
+Represents a manual EoS event.
+
+```typescript
+export type TUserManualEosEvent = {
+  eventId: string
+  timestamp: number
+  payload: TUserManualEventPayload
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `eventId` | `string` | Unique event ID. |
+| `timestamp` | `number` | Event timestamp in milliseconds. |
+| `payload` | `TUserManualEventPayload` | Event payload. See [`TUserManualEventPayload`](#tusermanualeventpayload). |
+
+### `TAgentManualEosPayload`
+
+Payload for a server-triggered automatic EoS event.
+
+```typescript
+export type TAgentManualEosPayload = {
+  reason: string
+  maxDurationMs: number
+  turnId: number
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `reason` | `string` | The reason the server automatically ended the current user's turn. |
+| `maxDurationMs` | `number` | The configured maximum duration, in milliseconds, for a single speaking turn. |
+| `turnId` | `number` | The associated conversation turn ID. |
+
+### `TAgentManualEosEvent`
+
+Represents a server-triggered automatic EoS event.
+
+```typescript
+export type TAgentManualEosEvent = {
+  eventId: string
+  timestamp: number
+  payload: TAgentManualEosPayload
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `eventId` | `string` | Unique event ID. |
+| `timestamp` | `number` | Event timestamp in milliseconds. |
+| `payload` | `TAgentManualEosPayload` | Event payload. See [`TAgentManualEosPayload`](#tagentmanualeospayload). |
+
+### `IChatMessageBase`
+
+The `IChatMessageBase` interface that contains the properties of the underlying message type.
+
+:::info
+Since v1.7
+:::
+
+```js
+export interface IChatMessageBase {
+  messageType: EChatMessageType
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `messageType`  | `EChatMessageType`   | Type of message. See [`EChatMessageType`](#echatmessagetype) for details. |
+
+### `IChatMessageImage`
+
+Represents an image-based chat message, which can contain URL image data.
+
+:::info
+Since v1.7
+:::
+
+```js
+export interface IChatMessageImage extends IChatMessageBase {
+  messageType: EChatMessageType.IMAGE
+  uuid: string
+  url?: string
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `messageType`  | `EChatMessageType.IMAGE`       | Message type, must be `IMAGE`. See [`EChatMessageType`](#echatmessagetype). |
+| `uuid`         | `string`                       | Unique identifier for the image message.     |
+| `url`          | `string`                       | Optional. URL pointing to the image resource. |
+
+### `SpeakMessage`
+
+Used to bypass the LLM and speak text directly through the agent's TTS pipeline.
+
+```js
+export interface SpeakMessage {
+  text: string
+  priority?: EChatMessagePriority
+  interruptable?: boolean
+}
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `text` | `string` | The text to speak. |
+| `priority` | `EChatMessagePriority` | Optional. The priority for handling this speak request. Defaults to `INTERRUPTED`. See [`EChatMessagePriority`](#echatmessagepriority). |
+| `interruptable` | `boolean` | Optional. Whether the user can interrupt this speech by talking. Defaults to `true`. |
+
+### `ThinkMessage`
+
+Used to inject text as user input for the LLM to process.
+
+```js
+export interface ThinkMessage {
+  text: string
+  onListeningAction?: EThinkListeningAction
+  onThinkingAction?: EThinkThinkingAction
+  onSpeakingAction?: EThinkSpeakingAction
+  interruptable?: boolean
+  metadata?: Record<string, string>
+}
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `text` | `string` | The instruction text to inject for the LLM. |
+| `onListeningAction` | `EThinkListeningAction` | Optional. The action to take when the agent is in a listening state. Defaults to `INTERRUPT`. See [`EThinkListeningAction`](#ethinklisteningaction). |
+| `onThinkingAction` | `EThinkThinkingAction` | Optional. The action to take when the agent is in a thinking state. Defaults to `IGNORE`. See [`EThinkThinkingAction`](#ethinkthinkingaction). |
+| `onSpeakingAction` | `EThinkSpeakingAction` | Optional. The action to take when the agent is in a speaking state. Defaults to `IGNORE`. See [`EThinkSpeakingAction`](#ethinkspeakingaction). |
+| `interruptable` | `boolean` | Optional. Whether the user can interrupt the response generated by this instruction by talking. Defaults to `true`. |
+| `metadata` | `Record<string, string>` | Optional. Custom key-value pairs. When omitted, no metadata is written to the RTM message. |
+
+
+### `IConversationalAIAPIConfig`
+
+Parameters used to configure the interface.
+
+```javascript
+export interface IConversationalAIAPIConfig {
+ rtcEngine: IAgoraRTCClient;
+ rtmEngine: RTMClient;
+ renderMode?: ETranscriptHelperMode;
+ enableLog?: boolean;
+ enableRenderModeFallback?: boolean;
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `rtcEngine` | `IAgoraRTCClient` | Agora RTC engine instance. See [`IAgoraRTCClient`](https://api-ref.agora.io/en/video-sdk/web/4.x/interfaces/iagorartcclient.html). |
+| `rtmEngine` | `RTMClient` | Agora RTM engine instance. See the [Signaling Web API reference](https://api-ref.agora.io/en/signaling-sdk/web/2.x/index.html). |
+| `renderMode` | `ETranscriptHelperMode` | Rendering mode. See [`ETranscriptHelperMode`](#etranscripthelpermode). |
+| `enableLog` | `boolean` | Whether to enable logging: `true` enables logging, `false` disables logging. |
+| `enableRenderModeFallback` | `boolean` | Whether to automatically fall back to text rendering when `renderMode` is set to word-level but the server doesn't provide word-level timing data. If `true` (default), falls back to text mode automatically. If `false`, stays in word mode regardless — this can result in no transcript being displayed if the server doesn't support word-level transcription. |
+
+### `TStateChangeEvent`
+
+Event type used to describe a change in the state of a voice agent.
+
+```javascript
+export type TStateChangeEvent = {
+ state: EAgentState
+ turnID: number
+ timestamp: number
+ reason: string
+}
+```
+
+:::info
+The state change event is triggered when the state of the voice agent changes. The timestamp uses the UNIX timestamp in milliseconds.
+:::
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `state` | [`EAgentState`](#eagentstate) | The current state of the voice agent. See [`EAgentState`](#eagentstate). |
+| `turnID` | `number` | Unique identifier for the current session turn. |
+| `timestamp` | `number` | Timestamp in milliseconds when the state change occurred. |
+| `reason` | `string` | Description of the reason for the status change. |
+
+### `TAgentMetric`
+
+Used to store metric data during agent runtime.
+
+```javascript
+export type TAgentMetric = {
+ type: EModuleType
+ name: string
+ value: number
+ timestamp: number
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `type` | [`EModuleType`](#emoduletype) | Indicator module type. See [`EModuleType`](#emoduletype). |
+| `name` | `string` | The name of the indicator. |
+| `value` | `number` | The indicator value. |
+| `timestamp` | `number` | Timestamp in milliseconds since Unix epoch (January 1, 1970 UTC). |
+
+### `TModuleError`
+
+Used to represent error messages from different AI modules, including error type, error code, error message, and timestamp. 
+
+```javascript
+export type TModuleError = {
+ type: EModuleType
+ code: number
+ message: string
+ timestamp: number
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `type` | [`EModuleType`](#emoduletype) | The module type where the error occurred. See [`EModuleType`](#emoduletype). |
+| `code` | `number` | Module-specific error code. |
+| `message` | `string` | Readable error description that makes it easier to understand and handle. |
+| `timestamp` | `number` | Timestamp in milliseconds since Unix epoch (January 1, 1970 UTC). |
+
+### `ISubtitleHelperItem`
+
+Transcript auxiliary item interface.
+
+The data structure for a single transcript item in the transcription system. This includes information such as user ID, stream ID, turn ID, timestamp, text content, status, and metadata.
+
+```javascript
+export interface ISubtitleHelperItem<T> {
+ uid: string;
+ stream_id: number;
+ turn_id: number;
+ _time: number;
+ text: string;
+ status: ETurnStatus;
+ metadata: T | null;
+}
+```
+
+| Parameter | Type     | Description             |
+|-----------|----------|-------------------------|
+| `uid` | `string` | Unique user identifier. |
+| `stream_id` | `number` | Stream identifier. |
+| `turn_id` | `number` | The turn identifier within the session. |
+| `_time` | `number` | Timestamp in milliseconds since Unix epoch (January 1, 1970 UTC). |
+| `text` | `string` | Transcript text content. |
+| `status` | [`ETurnStatus`](#eturnstatus) | The status of the transcript item. See [`ETurnStatus`](#eturnstatus). |
+| `metadata` | `T \| null` | Additional metadata information. |
+
+## Enum classes
+
+### EConversationalAIAPIEvents
+
+Event types that can be triggered by the Conversational AI API.
+
+:::info
+Since v1.6.0
+:::
+
+| Value | Description |
+|-------|-------------|
+| `AGENT_STATE_CHANGED` | `"agent-state-changed"`: Agent state change event. |
+| `AGENT_LISTENING_CHANGED` | `"agent-listening-changed"`: Agent listening state change event. |
+| `AGENT_THINKING_CHANGED` | `"agent-thinking-changed"`: Agent thinking state change event. |
+| `AGENT_SPEAKING_CHANGED` | `"agent-speaking-changed"`: Agent speaking state change event. |
+| `AGENT_INTERRUPTED` | `"agent-interrupted"`: Agent interrupted event. |
+| `AGENT_METRICS` | `"agent-metrics"`: Agent metrics event. |
+| `AGENT_ERROR` | `"agent-error"`: Agent error event. |
+| `TRANSCRIPT_UPDATED` | `"transcript-updated"`: Transcript updated event. |
+| `DEBUG_LOG` | `"debug-log"`: Debug log event. |
+| `MESSAGE_RECEIPT_UPDATED` | `"message-receipt-updated"`: Message receipt updated event. |
+| `MESSAGE_ERROR` | `"message-error"`: Message error event. |
+| `USER_MANUAL_SOS_RESULT` | `"user.manual_sos.result"`: Manual SoS result event. |
+| `USER_MANUAL_EOS_RESULT` | `"user.manual_eos.result"`: Manual EoS result event. |
+| `AGENT_MANUAL_EOS_RESULT` | `"assistant.manual_eos.result"`: Server-triggered automatic EoS notification event. |
+
+### EChatMessagePriority
+
+:::info
+Since v1.7
+:::
+
+Used to set the chat message processing priority.
+
+| `Value`  | `description`     |
+|----------|-------------------|
+| `INTERRUPTED` | (`'interrupted'`): Interrupts current processing and immediately handles this message. |
+| `APPEND`      | (`'append'`): Adds the message to the processing queue to be handled in order.       |
+| `IGNORE`      | (`'ignore'`): Discards the message without processing.                              |
+
+### EThinkListeningAction
+
+The action to take when the agent is in a listening state when a Think instruction arrives.
+
+| `Value` | `Description` |
+|---------|----------------|
+| `INJECT` | (`'inject'`): Injects the instruction into the current turn without interrupting it. |
+| `INTERRUPT` | (`'interrupt'`): Interrupts the current interaction and processes the instruction. |
+| `APPEND` | (`'append'`): Appends the instruction for processing after the current interaction completes. |
+| `IGNORE` | (`'ignore'`): Ignores the instruction. |
+
+### EThinkThinkingAction
+
+The action to take when the agent is in a thinking state when a Think instruction arrives.
+
+| `Value` | `Description` |
+|---------|----------------|
+| `INTERRUPT` | (`'interrupt'`): Interrupts the current interaction and processes the instruction. |
+| `APPEND` | (`'append'`): Appends the instruction for processing after the current interaction completes. |
+| `IGNORE` | (`'ignore'`): Ignores the instruction. |
+
+### EThinkSpeakingAction
+
+The action to take when the agent is in a speaking state when a Think instruction arrives.
+
+| `Value` | `Description` |
+|---------|----------------|
+| `INTERRUPT` | (`'interrupt'`): Interrupts the current interaction and processes the instruction. |
+| `APPEND` | (`'append'`): Appends the instruction for processing after the current interaction completes. |
+| `IGNORE` | (`'ignore'`): Ignores the instruction. |
+
+
+### EChatMessageType
+
+Chat message types supported in conversational AI.
+
+:::info
+Since v1.7
+:::
+
+| `Value` | `Description`                    |
+|--------------|----------------------------------|
+| `TEXT`       | (`'text'`): Text message.        |
+| `IMAGE`      | (`'image'`): Image message.      |
+| `UNKNOWN`    | (`'unknown'`): Unknown message type. |
+
+
+### EAgentState
+
+Agent state enumeration.
+
+```javascript
+export enum EAgentState {
+ IDLE = "idle",
+ LISTENING = "listening", 
+ THINKING = "thinking",
+ SPEAKING = "speaking",
+ SILENT = "silent"
+}
+```
+
+| Value | Description |
+|-------|-------------|
+| `IDLE` | ("idle"): The agent is idle and ready for new interactions. |
+| `LISTENING` | ("listening"): The agent is receiving user input. |
+| `THINKING` | ("thinking"): The agent is processing the input it receives. |
+| `SPEAKING` | ("speaking"): The agent is outputting a response. |
+| `SILENT` | ("silent"): The agent intentionally does not respond. |
+
+### EModuleType
+
+Enumeration of module types for AI capabilities.
+
+| Value | Description |
+|-------|-------------|
+| `LLM` | ("llm"): Large Language Model. |
+| `MLLM` | ("mllm"): Multimodal Large Language Model. |
+| `TTS` | ("tts"): Text-to-speech module. |
+| `CONTEXT` | ("context"): Context management module. |
+| `UNKNOWN` | ("unknown"): Unknown module type. |
+
+### ETranscriptHelperMode
+
+The mode type for transcript processing.
+
+| Value | Description |
+|-------|-------------|
+| `TEXT` | Processes transcript in text mode. |
+| `WORD` | Processes transcript in word mode. |
+| `UNKNOWN` | Unknown transcript processing mode. |
+
+
+### ETurnStatus
+
+TURN connection status enumeration.
+
+| Value | Description |
+|-------|-------------|
+| `IN_PROGRESS` | (0): TURN connection in progress. |
+| `END` | (1): TURN connection has ended. |
+| `INTERRUPTED` | (2): TURN connection has been disconnected. |

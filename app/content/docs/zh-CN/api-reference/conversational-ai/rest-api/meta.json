@@ -1,0 +1,9 @@
+{
+  "title": "REST API",
+  "navScope": {},
+  "pages": [
+    "authentication",
+    "status-codes",
+    "agent"
+  ]
+}

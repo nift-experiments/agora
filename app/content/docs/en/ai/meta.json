@@ -1,0 +1,17 @@
+{
+  "title": "Voice Agent",
+  "icon": "Zap",
+  "root": true,
+  "sidebarIndexTitle": "Voice Agent overview",
+  "pages": [
+    "index",
+    "release-notes",
+    "get-started",
+    "device-kit",
+    "studio",
+    "build",
+    "best-practices",
+    "models",
+    "reference"
+  ]
+}

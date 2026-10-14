@@ -1,0 +1,267 @@
+---
+title: "Chat Overview"
+description: "Gives an overview of RESTful APIs."
+---
+
+Chat provides RESTful APIs through the REST platform. You can send HTTP requests to the Agora server through your business server to realize real-time communication on the server side.
+
+## REST Platform Architecture
+
+The Chat REST platform provides a multi-tenant architecture to manage resources in the form of a Collection. A Collection contains the following:
+
+- Database
+- Organizations (orgs)
+- Apps (apps)
+- Users (users)
+- Chat groups (chatgroups)
+- Chat messages (chatmessages)
+- Chat files (chatfiles)
+
+The user data of different orgs is isolated from each other. Under the same org, the user data of different apps is also isolated from each other. The data structure of an org is as follows:
+
+Data structure of an org
+
+![1642333129463](https://web-cdn.agora.io/docs-files/1642333129463)
+
+## Prerequisites
+
+Ensure that you meet the following requirements before calling the Chat RESTful APIs:
+
+- You have [enabled and configured Chat in the Console](/en/realtime-media/im/get-started/enable).
+- You have retrieved an app token from the app server. For details, see [Authentication with App Token](/en/realtime-media/im/build/secure-access-and-authentication/authentication).
+
+## Features
+
+### User system integration
+
+This group of methods enable you to implement user system management, including user registration, retrieving users, modifying user attributes, and deleting users.
+
+| Name | Method | Request | Description | Rate Limits |
+| :----------- | :----- | :----------------------------------------------- | :-------------------- | :----- |
+| Registering a user | POST | `/app-id/{app_id}/users` | Creates a user account. | 100/second |
+| Registering multiple users | POST | `/app-id/{app_id}/users` | Creates multiple user accounts. | 100/second |
+| Retrieving a user | GET | `/app-id/{app_id}/users/{username}` | Retrieves the information of the specified user. |100/second |
+| Retrieving multiple users. | GET | `/app-id/{app_id}/users` | Retrieves the information of the specified users. | 100/second |
+| Deleting a user | DELETE | `/app-id/{app_id}/users/{username}` | Deletes the specified user. | 100/second |
+| Deleting multiple users | DELETE | `/app-id/{app_id}/users` | Deletes all the users in the app. | 30/second |
+| Banning a user | POST | `/app-id/{app_id}/users/{username}/deactivate` | Bans a user. | 100/second |
+| Unbanning a user | POST | `/app-id/{app_id}/users/{username}/activate` | Unbans a user. | 100/second |
+| Forcing a user offline | POST | `/app-id/{app_id}/users/{username}/disconnect` | Forcibly moves a user offline. | 100/second |
+| Querying the online state | GET | `/app-id/{app_id}/users/{username}/status` | Queries whether a user is online. | 100/second |
+| Querying the online state of multiple users | POST | `/app-id/{app_id}/users/batch/status` | Queries whether multiple users are online. | 50/second |
+| Querying the number of offline messages | GET | `/app-id/{app_id}/users/{owner_username}/offline_msg_count` | Queries the number of offline messages a user has. | 100/second |
+| Querying the delivery state of an offline message | GET | `/app-id/{app_id}/users/{username}/offline_msg_status/{msg_id}` | Queries the delivery state of an offline message. | 100/second |
+
+### Push
+
+This group of methods enables you to set the push message display mode, display nickname, and do-not-disturb mode.
+
+| Name | Method | Request | Description | Rate Limits |
+| :------------------- | :--- | :-------------------------------------- | :--------------------------------------------------- |  :----- |
+| Setting the display nickname | PUT | `/app-id/{app_id}/users/{username}` | Sets the display nickname of the push message. | 100/second |
+| Setting the display options | PUT | `/app-id/{app_id}/users/{username}` | Sets whether the push messages are displayed as notifications only or details are visible. | 100/second |
+| Setting do-not-disturb (DND) | PUT | `/app-id/{app_id}/users/{username}` | Sets whether to enable DND, and the time to enable and disable DND. | 100/second |
+| Sending push notifications to users | POST  | `/app-id/{app_id}/push/single` | Sends push notifications to one or more users by specifying user IDs.         | 1200/minute|
+| Sending push notifications by labels | POST  | `/app-id/{app_id}/push/list/label` | Sends push notifications to all users under one label, or the intersection of users under multiple labels.      | 1200/minute, the number of concurrent ongoing tasks cannot exceed 3   |
+| Sending push notifications to all users under the app | POST  | `/app-id/{app_id}/push/task` | Sends push notifications to all users under the app.         | 5/minute & 100 times per day, the number of concurrent ongoing tasks cannot exceed 3  |
+
+#### Push label
+
+The total rate limit of the following methods is 100/second.
+
+| Name | Method | Request | Description |
+| :------------------- | :--- | :-------------------------------------- | :------------------------------------------------------ |
+| Creating a push label | POST  | `/app-id/{app_id}/push/label` | Sets a push label to group targeting users, to implement a bespoke push.      |
+| Querying the detailed information of the specified push label. | GET  | `/app-id/{app_id}/push/label/{labelname}` | Retrieves the detailed information of the specified push label.       |
+| Querying the detailed information of push labels by page | GET  | `/app-id/{app_id}/push/label` | Retrieves the detailed information of multiple push labels by page.        |
+| Deleting a push label | DELETE  | `/app-id/{app_id}/push/label/{labelname}` | Deletes the specified push label. You can delete one push label at each call.    |
+| Adding users to a push label | POST  | `/app-id/{app_id}/push/label/{labelname}/user` | Adds one or more users to the specified push label. You can add a maximum of 100 users at each call.          |
+| Querying the specified user under the specified push label | GET  | `/app-id/{app_id}/push/label/{labelname}/user/{member}` | Retrieves the detailed information of the specified user under the specified push label.       |
+| Querying the detailed information of users under the specified push label by page | GET  | `/app-id/{app_id}/push/label/{labelname}/user` | Retrieves the detailed information of one or more users under the specified push label by page.     |
+| Removing users from a push label | DELETE  | `/app-id/{app_id}/push/label/{labelname}/user` | Removes one or more users from the specified push label. You can remove a maximum of 100 users at each call.       |
+
+### Sending messages and uploading/downloading files
+
+This group of methods enables you to send text, image, voice, video, CMD, extension, file, custom, and other types of messages, as well as uploading and downloading files from the server.
+
+| Name | Method | Request | Description | Rate Limits |
+| :--------------- | :--- | :------------------------------------------ | :------------------------------------------------- |  :----- |
+| Sending a message | POST | `/app-id/{app_id}/messages` | App admins use this method to send messages to users, groups, and chat rooms. This method supports sending text, image, voice, video, command, and file messages. | 100/second |
+| Uploading files | POST | `/app-id/{app_id}/chatfiles` | Uploads voice and image files. | 100/second |
+| Downloading files | POST | `/app-id/{app_id}/chatfiles/{file_uuid}` | Downloads voice and image files. | 100/second |
+| Retrieving historical messages | GET | `/app-id/{app_id}/chatmessages/${time}` | Retrieves chat historical messages | 10/minute |
+| Modify a text or custom message | PUT | `/app-id/{app_id}/messages/rewrite/{msg_id}` | Modifies a text message or custom message. | 100/second |
+| Recalling a message | POST | `app-id/{app_id}/messages/recall` | Recalls a message within two minutes after it is sent. | 100/second |
+| Deleting conversations from the server | DELETE | `/app-id/{app_id}/users/{userName}/user_channel` | Deletes the conversation from the server. | 100/second |
+
+### User attributes
+
+This group of methods enables you to set, retrieve, and delete user attributes.
+
+| Name | Method | Request | Description | Rate Limits |
+| :------------------------- | :----- | :---------------------------------------------- | :---------------------- |  :----- |
+| Setting user attributes | PUT | `/app-id/{app_id}/metadata/user/{username}` | Sets the user attributes for the specified user. | 100/second |
+| Retrieving user attributes | GET | `/app-id/{app_id}/metadata/user/{username}` | Retrieves all the user attributes of the specified user. | 100/second |
+| Retrieving the user attributes of multiple users | POST | `/app-id/{app_id}/metadata/user/get` | Retrieves multiple users' attributes by specifying the user name list and user attribute list. | 100/second |
+| Deleting user attributes | DELETE | `/app-id/{app_id}/metadata/user/{username}` | Deletes all the user attributes for the specified user. | 100/second |
+| Retrieving the total size of user attributes | GET | `/app-id/{app_id}/metadata/user/capacity` | Gets the total size of user attributes for all the users in the app. | 100/second |
+
+### Contact management
+
+This group of methods enables you to manage the user's contact list and block list.
+
+| Name | Method | Request | Description | Rate Limits |
+| :----------- | :----- | :----------------------------------------------------------- | :--------------------- |  :----- |
+| Adding a contact | POST | `/app-id/{app_id}/users/{owner_username}/contacts/users/{friend_username}` | Adds the specified user as a contact. | 100/second |
+| Removing a contact | DELETE | `/app-id/{app_id}/users/{owner_username}/contacts/users/{friend_username}` | Removes the specified user from the contact list. | 100/second |
+| Retrieving a contact list | GET | `/app-id/{app_id}/users/{owner_username}/contacts/users` | Retrieves the contact list. | 100/second |
+| Retrieving a block list | GET | `/app-id/{app_id}/users/{owner_username}/blocks/users` | Retrieves the block list. | 50/second |
+| Adding user to block list | POST | `/app-id/{app_id}/users/{owner_username}/blocks/users` | Add the specified user to the block list. | 50/second |
+| Removing user from block list | DELETE | `/app-id/{app_id}/users/{owner_username}/blocks/users/{blocked_username}` | Removes the specified user from the block list. | 50/second |
+
+### Chat group management
+
+This group of methods enables you to create, retrieve, modify, and delete chat rooms.
+
+| Name | Method | Request | Description | Rate Limits |
+| :------------------------------ | :----- | :--------------------------------------------- | :----------------------------- |  :----- |
+| Retrieving all groups in the app by page | GET | `/app-id/{app_id}/chatgroups?limit={N}&cursor={cursor}` | Retrieves the information of all the groups in the app by page. | 100/second |
+| Retrieving all the groups the user joins | GET | `/app-id/{app_id}/users/{username}/joined_chatgroups` | Retrieves all the groups the user joins by specifying the user name. | 100/second |
+| Retrieving group details | GET | `/app-id/{app_id}/chatgroups/{group_ids}` | Retrieves group details by specifying the group ID. | 100/second |
+| Creating a group | POST | `/app-id/{app_id}/chatgroups` | Creates a group. | 100/second |
+| Banning a group | POST   | `/app-id/{app_id}/chatgroups/{group_id}/disable`              | Bans the specified group. Groups are typically banned when too many users or messages violate community guidelines.  | 100/second |
+| Unbanning a group | POST   | `/app-id/{app_id}/chatgroups/{group_id}/enable`              | Lifts a ban on the specified group.  | 100/second |
+| Modifying group information | PUT | `/app-id/{app_id}/chatgroups/{group_id}` | Modifies the group information. | 100/second |
+| Deleting a group | DELETE | `/app-id/{app_id}/chatgroups/{group_id}` | Deletes a group. | 100/second |
+
+### Chat group member management
+
+This group of methods enables you to manage group members, including adding and removing group members, transferring group ownership, and retrieving lists of group admins and members.
+
+| Name | Method | Request | Description | Rate Limits |
+| :--------------- | :----- | :----------------------------------------------------------- | :---------------------- |  :----- |
+| Retrieving group member list (Pagination) | GET | `/app-id/{app_id}/chatgroups/{group_id}/users` | Retrieves the member list of the group by pagination. | 100/second |
+| Adding a group member | POST | `/app-id/{app_id}/chatgroups/{group_id}/users/{username}` | Adds a user to the group member list. | 100/second |
+| Adding multiple group members | POST | `/app-id/{app_id}/chatgroups/{chatgroupid}/users` | Adds multiple users to the group member list. | 100/second |
+| Removing a group member | DELETE | `/app-id/{app_id}/chatgroups/{group_id}/users/{username}` | Removes the specified user from the group member list. | 100/second |
+| Removing multiple group members | DELETE | `/app-id/{app_id}/chatgroups/{group_id}/users/{usernames}` | Removes the specified users from the group member list. | 100/second |
+| Retrieving group admin list | GET | `/app-id/{app_id}/chatgroups/{group_id}/admin` | Retrieves the group admin list. | 100/second |
+| Adding a group admin | POST | `/app-id/{app_id}/chatgroups/{group_id}/admin` | Adds the specified user to the group admin list. | 100/second |
+| Removing a group admin | DELETE | `/app-id/{app_id}/chatgroups/{group_id}/admin/{oldadmin}` | Removes the specified user from the group admin list. | 100/second |
+| Transferring group ownership | PUT | `/app-id/{app_id}/chatgroups/{groupid}` | Transfers the group owner privileges. | 100/second |
+
+### Chat room management
+
+This group of methods enables you to create, retrieve, modify, and delete chat rooms.
+
+| Name | Method | Request | Description | Rate Limits |
+| :---------------------- | :----- | :------------------------------------------------------- | :-------------------------- |  :----- |
+| Retrieving all chat rooms by page | GET | `/app-id/{app_id}/chatrooms?limit={N}&cursor={cursor}` | Retrieves the information of all the chat rooms in the app by page. | 50/second |
+| Retrieving chat rooms a user joins | GET | `/app-id/{app_id}/users/{username}/joined_chatrooms` | Retrieves the chat rooms that a user joins by specifying the username. | 50/second |
+| Retrieving chat room details | GET | `/app-id/{app_id}/chatrooms/{chatroom_id}` | Retrieves the details of the chat room by specifying the chat room ID. | 100/second |
+| Creating a chat room | POST | `/app-id/{app_id}/chatrooms` | Creates a new chat room. | 50/second |
+| Modifying chat room information | PUT | `/app-id/{app_id}/chatrooms/{chatroom_id}` | Modifies the chat room information. | 100/second |
+| Deleting a chat room | DELETE | `/app-id/{app_id}/chatrooms/{chatroom_id}` | Deletes a chat room. | 100/second |
+| Setting custom attributes    | PUT    | `/app-id/{app_id}/metadata/chatroom/{chatroom_id}/user/{username}` | Adds new custom chat room attributes or modifies existing ones set by the current user.      | 100/second |
+| Retrieving custom attributes        | POST    | `/app-id/{app_id}/metadata/chatroom/{chatroom_id}` | Retrieves the specified custom attributes of a chat room.       | 100/second |
+| Forcibly setting custom attributes | PUT | `/app-id/{app_id}/metadata/chatroom/{chatroom_id}/user/{username}/forced` | In addition to adding new custom attributes or modifying the existing ones set by the current user, this method can also be used to overwrite the custom attributes set by others.  | 100/second |
+| Removing custom attributes | DELETE  | `/app-id/{app_id}/metadata/chatroom/{chatroom_id}/user/{username}` | Removes custom attributes set by the current user. This method is only used to remove the key-value pairs set by the current user.  | 100/second |
+| Forcibly removing custom attributes | DELETE  | `/app-id/{app_id}/metadata/chatroom/{chatroom_id}/user/{username}/forced` | In addition to removing the custom attributes set by the current user, this method can also be used to remove custom attributes set by others. | 100/second |
+
+### Chat room member management
+
+This group of methods enables you to add, retrieve, modify, and delete members from the chat room.
+
+| Name | Method | Request | Description | Rate Limits |
+| :------------------- | :----- | :------------------------------------------- | :--------------------- |  :----- |
+| Retrieving chat room member list (Pagination) | GET | `/app-id/{app_id}/chatrooms/{chatroom_id}/users` | Retrieves the member list of the chat room by pagination. | 100/second |
+| Adding a chat room member | POST | `/app-id/{app_id}/chatrooms/{chatroomid}/users/{username}` | Adds the specified user to the chat room member list. | 100/second |
+| Adding multiple chat room members | POST | `/app-id/{app_id}/chatrooms/{chatroomid}/users` | Adds multiple specified users to the chat room member list. | 100/second |
+| Removing a chat room member | DELETE | `/app-id/{app_id}/chatrooms/{chatroomid}/users/{username}` | Removes the specified user from the chat room member list. | 100/second |
+| Removing multiple chat room members | DELETE | `/app-id/{app_id}/chatrooms/{chatroomid}/users/{usernames}` | Removes the specified users from the chat room member list. | 100/second |
+| Retrieving chat room admin list | GET | `/app-id/{app_id}/chatrooms/{chatroom_id}/admin` | Retrieves the chat room admin list. | 100/second |
+| Adding a chat room admin | POST | `/app-id/{app_id}/chatrooms/{chatroom_id}/admin` | Adds the specified user to the chat room admin list. | 100/second |
+| Removing a chat room admin | DELETE | `/app-id/{app_id}/chatrooms/{chatroom_id}/admin/{oldadmin}` | Removes the specified user from the chat room admin list. | 100/second |
+
+### Global mute
+
+This group of methods enables you to mute any user ID in one-to-one chats, chat groups, or chat rooms, preventing these users from sending messages to other chat users, chat groups, or chat rooms.
+
+| Name | Method | Request | Description | Rate Limits |
+| --- | --- | --- | --- | --- |
+| Globally mute a specified user | POST | `/app-id/{app_id}/mutes` | Mutes a specified user in one-to-one chats, chat groups, or chat rooms. | 100/second |
+| Query the detailed information of global-mute | GET | `/app-id/{app_id}/mutes/username` | Queries the detailed information of the global-mute settings of the specified user in one-to-one chats, chat groups, or chat rooms.| 100/second |
+| Retrieve all globally muted users | GET | `/app-id/{app_id}/mutes` | Retrieves all the users that have been globally muted in the app. | 100/second |
+
+### Presence
+
+This group of methods enable you to set the presence of a user, subscribe to the presence of multiple users, retrieve the presence status of multiple users, and retrieve the subscriptions of a user.
+
+| Name       | Method   | Request        | Description | Rate Limits |
+| :------------- | :----- | :----------- | :------------------------ | :------------------------ |
+| Setting the presence status of a user | POST   | `/app-id/{app_id}/users/{username}/presence/{resource}/{status}` | Sets the presence status of a user by user ID.  | 50/second |
+| Subscribing to the presence status of multiple users   | POST   | `/app-id/{app_id}/users/{username}/presence/{expiry}`         | Subscribes to the presence status of multiple users. | 50/second |
+| Retrieving the presence status of multiple users | POST   | `/app-id/{app_id}/users/{username}/presence`                  | Retrieves the presence status of multiple users. | 50/second |
+| Unsubscribing from the presence status of multiple users   | DELETE | `/app-id/{app_id}/users/{username}/presence`                  | Unsubscribes from the presence status of multiple users. | 50/second |
+| Retrieving the subscriptions of a user    | GET    | `/app-id/{app_id}/users/{username}/presence/sublist?pageNum=1&pageSize=100` | Retrieves the subscriptions of a user. | 50/second |
+
+### Reaction
+
+This group of methods enable your chat users to reply the message with emojis.
+
+| Name | Method | Request | Description | Rate Limits |
+| --- | --- | --- | --- | --- |
+| Create a reaction | POST | `/app-id/{app_id}/reaction/user/{userId}` | Creates or adds a reaction to a specified message. | 100/second |
+| Retrieve reactions with message IDs | GET | `/app-id/{app_id}/reaction/user/{userId}` | Retrieves the information of the reaction according to the message ID. | 100/second |
+| Delete a reaction | DELETE | `/app-id/{app_id}/reaction/user/{userId}` | Deletes a reaction. | 100/second |
+| Retrieve the detailed information of the reaction | GET | `/app-id/{app_id}/reaction/user/{userId}/detail` | Retrieves the detailed information of the reaction by specifying the message ID and reaction ID. | 100/second |
+
+### Thread management
+
+This group of methods enable you to create a thread, modify a thread, delete a thread, and retrieve threads.
+
+| Name      | Method   | Request                  | Description           | Rate Limits |
+| :------------- | :----- | :---------------------------- | :--------------------- | :---------- |
+| Creating a thread     | POST   | `/app-id/{app_id}/thread`           | Creates a thread.   | 100/second |
+| Modifying a thread   | PUT    | `/app-id/{app_id}/thread/{thread_id}`    | Modifies a thread. | 100/second |
+| Deleting a thread    | DELETE | `/app-id/{app_id}/thread/{thread_id}`                            | Deletes a thread.  | 100/second  |
+| Retrieving all the threads under the app  | GET    | `/app-id/{app_id}/thread?limit={limit}&cursor={cursor}&sort={sort}`        | Retrieves all the threads under the app  | 100/second |
+| Retrieving all the threads a user joins under the app | GET    | `/app-id/{app_id}/threads/user/{username}?limit={limit}&cursor={cursor}&sort={sort}`   | Retrieves all the threads a user joins under the app   | 100/second  |
+| Retrieving all the threads a user joins under a group | GET    | `/app-id/{app_id}/threads/chatgroups/{group_id}/user/{username}?limit={limit}&cursor={cursor}&sort={sort}` | Retrieves all the threads a user joins by user ID and group ID. | 100/second  |
+
+### Thread member management
+
+This group of methods enable you to join a thread and remove members from the thread.
+
+| Name      | Method   | Request          | Description       | Rate Limits |
+| :----------------- | :----- | :------------- | :------------------- |:------------------- |
+| Retrieving thread members | GET    | `/app-id/{app_id}/thread/{thread_id}/users?limit={N}&cursor={cursor}`  | Retrieves all the members in the specified thread. | 100/second |
+| Adding multiple users to a thread   | POST   | `/app-id/{app_id}/thread/{thread_id}/users`  | Adds multiple users to the specified thread. | 100/second  |
+| Removing multiple thread members   | DELETE | `/app-id/{app_id}/threads/{thread_id}/users` |Removes multiple users from the specified thread.  | 100/second |
+
+## Request structure
+
+### Authorization
+
+The Chat RESTful APIs require Bearer HTTP authentication. Every time an HTTP request is sent, the following `Authorization` field must be filled in the request header:
+
+```text
+Authorization: Bearer ${token}
+```
+
+In order to improve the security of the project, Agora uses a token (dynamic key) to authenticate users before they log in to the chat system. The Chat RESTful APIs only supports authenticating users using app tokens. For details, see [Authentication using App Token](/en/realtime-media/im/build/secure-access-and-authentication/authentication).
+
+### Server address
+
+Under the same project, all requests are sent to the same domain name. For how to get the domain name, see [Get the information of the Chat project](/en/realtime-media/im/get-started/enable#get-chat-project-information).
+
+### Protocol
+
+To ensure communication security, the Chat RESTful APIs only support the HTTPS protocol.
+
+### Data Format
+
+- Request: See the sample code of each API for the data format of the request.
+- Response: The format of the response is JSON.
+
+> All request URLs and request bodies are case sensitive.

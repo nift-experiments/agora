@@ -1,0 +1,9 @@
+{
+  "icon": "ScrollText",
+  "title": "Reference",
+  "pages": [
+    "pricing",
+    "event-types",
+    "ten-agent"
+  ]
+}

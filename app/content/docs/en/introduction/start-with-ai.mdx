@@ -1,0 +1,100 @@
+---
+title: Start with AI
+description: Install the Agora CLI, add Agora Skills, then give your assistant a precise prompt so it can choose the right starter and setup path.
+---
+
+Use this page when you want your coding assistant to help you get started without guessing. The steps are simple: install the CLI, add the Agora skill, then give the assistant a prompt with the product, platform, language, and goal.
+
+If you also want live docs lookup while the assistant works, pair [Agora Skills](/en/introduction/agora-skills) with [Agora MCP](/en/introduction/agora-mcp). Skills handles workflow guidance, and MCP handles current documentation.
+
+## Quick start
+
+### 1. Install CLI
+<Tabs>
+<TabsList>
+  <TabsTrigger value="mac-linux">macOS and Linux</TabsTrigger>
+  <TabsTrigger value="windows-powershell">Windows (PowerShell)</TabsTrigger>
+</TabsList>
+
+<TabsContent value="mac-linux">
+
+```bash
+curl -fsSL https://dl.agora.io/cli/install.sh | sh
+agora --help
+```
+
+</TabsContent>
+
+<TabsContent value="windows-powershell">
+
+```powershell
+irm https://dl.agora.io/cli/install.ps1 | iex
+agora --help
+```
+
+If your execution policy blocks inline scripts, download `install.ps1` and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+</TabsContent>
+</Tabs>
+
+After installation, confirm `agora --help` works in the same shell.
+
+### 2. Add skill
+
+Install [Agora Skills](/en/introduction/agora-skills) so your assistant can choose the right Agora workflow, starter, and setup sequence before it edits code.
+
+<Tabs>
+<TabsList>
+  <TabsTrigger value="skills-cli">Skills CLI</TabsTrigger>
+  <TabsTrigger value="manual">Manual installation</TabsTrigger>
+</TabsList>
+
+<TabsContent value="skills-cli">
+
+```bash
+npx skills add AgoraIO/skills
+```
+
+</TabsContent>
+
+<TabsContent value="manual">
+
+Clone the repository and point your coding assistant to the Agora skill files:
+
+```bash
+git clone https://github.com/AgoraIO/skills.git ~/agora-skills
+```
+
+Use `skills/agora/` as the directory entry point, or load `SKILL.md` directly if your tool expects a single root file.
+
+</TabsContent>
+</Tabs>
+
+If your tool prefers local instruction files, point it at `skills/agora/` or the top-level `SKILL.md`.
+
+If you only want docs lookup and not workflow guidance, install [Agora MCP](/en/introduction/agora-mcp) instead. Many teams use both.
+
+### 3. Prompt
+
+Now tell the assistant what you want it to build and how to approach the setup. A strong prompt includes the Agora product, the target platform, the language or starter preference, and the end goal.
+
+```text
+Use Agora Skills to help me build a web-based conversational AI demo in Python.
+```
+
+From there, let the assistant choose the starter, run `agora login`, initialize the project, and explain any environment values it writes locally.
+
+## What success looks like
+
+You are on the right path when the assistant can:
+
+- choose an official starter instead of inventing one
+- explain why that starter matches your product and platform
+- use the Agora CLI for setup instead of ad hoc manual steps
+- stay grounded in current Agora docs when platform details matter
+
+

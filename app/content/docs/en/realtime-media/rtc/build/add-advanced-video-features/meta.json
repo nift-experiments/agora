@@ -1,0 +1,8 @@
+{
+  "title": "Add advanced video features",
+  "pages": [
+    "face-capture",
+    "picture-in-picture",
+    "screenshot-upload"
+  ]
+}

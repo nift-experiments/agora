@@ -1,0 +1,10 @@
+{
+  "title": "Build",
+  "pages": [
+    "run-r1-demo",
+    "device-controls",
+    "---[Blocks]System architecture---",
+    "architecture-overview",
+    "specifications-and-compatibility"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "title": "MLLM",
+  "pages": [
+    "index",
+    "azure",
+    "gemini",
+    "google-vertex-ai",
+    "openai",
+    "openai-gpt-live",
+    "xai"
+  ]
+}

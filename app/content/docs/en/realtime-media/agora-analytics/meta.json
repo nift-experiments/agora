@@ -1,0 +1,11 @@
+{
+  "title": "Agora Analytics",
+  "navScope": {},
+  "sidebarIndexTitle": "Agora Analytics overview",
+  "pages": [
+    "product-overview",
+    "activation",
+    "build",
+    "reference"
+  ]
+}

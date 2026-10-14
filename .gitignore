@@ -1,1 +1,30 @@
 .nift/.lock
+
+# Reproducible build outputs and local dependencies
+app/node_modules/
+app/.source/
+app/.tanstack/
+app/.cache/
+app/dist/
+app/public/__nift/
+app/public/__static/
+app/public/openapi/
+app/public/en/
+app/public/en.md
+app/public/zh-CN/
+app/public/zh-CN.md
+app/public/llms/
+app/public/llms.txt
+app/public/llms-full.txt
+app/public/sitemap.xml
+.cache/
+public/
+content/generated/
+
+.generated/
+
+# Nift local dependency identities are regenerated, never maintained source.
+.nift/content/
+.nift/tools/
+.nift/public/
+.nift/identity-stage1/

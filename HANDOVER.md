@@ -314,6 +314,16 @@ Then read feature documentation only when the task requires it, for example:
 
 Prefer documented Nift behaviour and the existing project structure over guessing based on another website generator or framework.
 
-## Agora checkpoint 1 — 2026-10-15
+## Agora implementation checkpoint — 2026-10-15
 
-Official migration initialization completed. Read UPSTREAM.md, investigation/BASELINE.md and STATUS.md. Baseline source is pinned full history; reference source remains untouched and builds use a disposable separate checkout. Bun exists at /home/nick/.bun/bin/bun but was outside PATH; scripts must resolve the frozen toolchain explicitly. Independent read-only architecture and measurement reviews identified static-payload/Router seams, extra Vite work in generators, split global/CN publications and aggregate RSS requirements. No ported content or performance claim yet. Continue baseline before major implementation.
+Read README.md, UPSTREAM.md and investigation/STATUS.md. The experiment has moved beyond scaffold/reconnaissance into a full-corpus authored implementation; certification and final measurements are still pending. Historical BASELINE.md notes record the initial investigation and must not be interpreted as current completion status.
+
+Use root `bun run install:app`, `bun run build`, `bun run build:full` and `bun run serve`. Final publication is root `public/`; the static preview runs on 4190. Keep `nift` and the pinned Bun toolchain on PATH. The package commands are the full pipeline; isolated Nift composition and upstream app scripts are not equivalent production measurements.
+
+Maintain Markdown/MDX/includes, navigation and OpenAPI under app/content. Independent Fumadocs compilation emits React ESM/metadata; upstream semantic helpers derive projections; Vite retains the TanStack application, route SSR and browser runtime; Nift composes prepared publication inputs. Compiler process lifetimes are bounded, and dependencies include recursive includes, local image dimensions, config plugins and package revisions. See tools/CONTENT-COMPILER.md.
+
+Immutable app/src/generated/docs-last-updated-manifest.ts preserves upstream Git-derived dates. Do not rebuild it from migration import commits. Runtime globals must initialize before article ESM loads, and browser/SSR must share React/component identities. Root Vercel rules retain upstream redirects/content negotiation; the build image must supply Nift explicitly. Local Python preview does not emulate those hosting rules.
+
+Keep source-model, CDN/external Algolia, local Orama fallback and separate CN production scope explicit. The global default build does not prove complete CN publication. Do not perform private service/index mutations without their required authorization.
+
+No Nift core or Labs changes. Raw logs/screenshots/benchmarks/reference output stay outside source repos. Finish parity/lifecycle/fresh-clone checks and serialized complete-pipeline measurements with aggregate process-tree RSS before checkpoint closeout. No final benchmark or completion claim is approved yet.

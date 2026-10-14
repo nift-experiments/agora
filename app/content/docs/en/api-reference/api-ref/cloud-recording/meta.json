@@ -1,0 +1,17 @@
+{
+  "title": "Cloud Recording",
+  "navScope": {},
+  "pages": [
+    "index",
+    "authentication",
+    "api-callback-service",
+    "acquire",
+    "start",
+    "update",
+    "update-layout",
+    "query",
+    "stop",
+    "get-ncs-ip",
+    "status-codes"
+  ]
+}

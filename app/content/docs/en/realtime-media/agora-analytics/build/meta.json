@@ -1,0 +1,9 @@
+{
+  "icon": "Hammer",
+  "title": "Build",
+  "pages": [
+    "explore-and-analyze-data",
+    "monitor-and-get-alerts",
+    "integrate-and-embed"
+  ]
+}

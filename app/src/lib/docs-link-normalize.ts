@@ -1,0 +1,497 @@
+import { buildDocPath, getSourceSlugsFromContentPath } from './docs-routing';
+
+export type NormalizedDocsHrefKind =
+  | 'external'
+  | 'hash'
+  | 'internal-doc'
+  | 'relative-asset'
+  | 'root'
+  | 'unknown';
+
+export type NormalizedDocsHref = {
+  href: string;
+  kind: NormalizedDocsHrefKind;
+};
+
+export function normalizeDocsHref(
+  href: string,
+  context: { contentPath?: string } = {},
+): NormalizedDocsHref {
+  if (!href) {
+    return { href, kind: 'unknown' };
+  }
+
+  if (href.startsWith('#')) {
+    return { href, kind: 'hash' };
+  }
+
+  if (href.startsWith('/')) {
+    if (href.startsWith('//')) {
+      return { href, kind: 'external' };
+    }
+
+    return {
+      href: normalizeRootDocsHref(href, context),
+      kind: 'root',
+    };
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+    return { href, kind: 'external' };
+  }
+
+  const parsed = splitHref(href);
+  const isMarkdownDocPath = /\.mdx?$/i.test(parsed.path);
+  const isExtensionlessDocPath =
+    Boolean(context.contentPath) && isExtensionlessRelativeDocPath(parsed.path);
+
+  if (!isMarkdownDocPath && !isExtensionlessDocPath) {
+    return { href, kind: 'relative-asset' };
+  }
+
+  if (!context.contentPath) {
+    return { href, kind: 'unknown' };
+  }
+
+  const targetHrefPath = isMarkdownDocPath ? parsed.path : `${parsed.path}.md`;
+  const targetContentPath = resolveRelativePath(
+    dirname(context.contentPath),
+    targetHrefPath,
+  );
+  const [locale] = targetContentPath.split('/').filter(Boolean);
+  const sourceSlugs = getSourceSlugsFromContentPath(targetContentPath);
+  const [tab, ...slugSegments] = sourceSlugs;
+
+  if (!locale || !tab) {
+    return { href, kind: 'unknown' };
+  }
+
+  const docPath = `${buildDocPath(locale, tab, slugSegments)}${parsed.search}${parsed.hash}`;
+
+  return {
+    href: normalizeLegacyRootDocsHref(docPath),
+    kind: 'internal-doc',
+  };
+}
+
+function normalizeRootDocsHref(
+  href: string,
+  context: { contentPath?: string } = {},
+) {
+  const indexHref = normalizeIndexDocsHref(href);
+
+  if (indexHref !== href) {
+    return indexHref;
+  }
+
+  const legacyHref = normalizeLegacyRootDocsHref(href);
+
+  if (legacyHref !== href) {
+    return legacyHref;
+  }
+
+  const rtcAndroidVersionScope = getRtcAndroidVersionScope(context.contentPath);
+
+  if (!rtcAndroidVersionScope) {
+    return href;
+  }
+
+  const parsed = splitHref(href);
+  const prefix = `/${rtcAndroidVersionScope.locale}/api-reference/rtc/android`;
+
+  if (
+    !parsed.path.startsWith(`${prefix}/`) ||
+    parsed.path.startsWith(`${prefix}/${rtcAndroidVersionScope.version}/`)
+  ) {
+    return href;
+  }
+
+  return `${prefix}/${rtcAndroidVersionScope.version}${parsed.path.slice(prefix.length)}${parsed.search}${parsed.hash}`;
+}
+
+function normalizeLegacyRootDocsHref(href: string) {
+  const parsed = splitHref(href);
+  const segments = parsed.path.split('/').filter(Boolean);
+  const [locale, group, leaf] = segments;
+
+  const mappedAiPath = getLegacyAiPath(segments);
+
+  if (mappedAiPath) {
+    return `${mappedAiPath}${parsed.search}${parsed.hash}`;
+  }
+
+  const mappedConversationalAiPath =
+    getLegacyConversationalAiRestPath(segments);
+  if (mappedConversationalAiPath) {
+    return `${mappedConversationalAiPath}${parsed.search}${parsed.hash}`;
+  }
+
+  if ((locale === 'en' || locale === 'zh-CN') && group && leaf) {
+    const mappedPath = getLegacyLocalePath(locale, group, leaf);
+
+    if (mappedPath) {
+      return `${mappedPath}${parsed.search}${parsed.hash}`;
+    }
+  }
+
+  const mappedAbsolutePath = LEGACY_ABSOLUTE_PATHS[parsed.path];
+
+  if (mappedAbsolutePath) {
+    return `${mappedAbsolutePath}${parsed.search}${parsed.hash}`;
+  }
+
+  return href;
+}
+
+function normalizeIndexDocsHref(href: string) {
+  const parsed = splitHref(href);
+
+  if (!parsed.path.endsWith('/index')) {
+    return href;
+  }
+
+  const path = parsed.path.slice(0, -'/index'.length) || '/';
+
+  return `${path}${parsed.search}${parsed.hash}`;
+}
+
+function isExtensionlessRelativeDocPath(path: string) {
+  if (!path || path.endsWith('/')) {
+    return false;
+  }
+
+  const leaf = path.split('/').filter(Boolean).at(-1);
+
+  return Boolean(leaf && !leaf.includes('.'));
+}
+
+function getLegacyConversationalAiRestPath(segments: string[]) {
+  const [locale, tab, product, restApi, group, leaf] = segments;
+
+  if (
+    (locale !== 'en' && locale !== 'zh-CN') ||
+    tab !== 'api-reference' ||
+    product !== 'conversational-ai' ||
+    restApi !== 'rest-api'
+  ) {
+    return null;
+  }
+
+  if (!group) {
+    return locale === 'en'
+      ? `/${locale}/api-reference/api-ref/conversational-ai`
+      : null;
+  }
+
+  if (group === 'authentication' || group === 'status-codes') {
+    return locale === 'en'
+      ? `/${locale}/api-reference/api-ref/conversational-ai/${group}`
+      : null;
+  }
+
+  if (group !== 'agent' || !leaf) {
+    return null;
+  }
+
+  const routeLeaf = LEGACY_CONVERSATIONAL_AI_AGENT_ROUTE_LEAVES[leaf];
+
+  return routeLeaf
+    ? `/${locale}/api-reference/api-ref/conversational-ai/${routeLeaf}`
+    : null;
+}
+
+function getLegacyLocalePath(locale: string, group: string, leaf: string) {
+  if (group === 'operations') {
+    const routeLeaf = LEGACY_OPERATION_ROUTE_LEAVES[leaf];
+
+    if (routeLeaf) {
+      return `/${locale}/api-reference/api-ref/conversational-ai/${routeLeaf}`;
+    }
+  }
+
+  if (group === 'user-guides') {
+    return LEGACY_USER_GUIDE_PATHS[leaf]?.(locale);
+  }
+
+  if (group === 'get-started') {
+    return LEGACY_GET_STARTED_PATHS[leaf]?.(locale);
+  }
+
+  if (group === 'ai' && leaf === 'openai-realtime') {
+    return `/${locale}/ai/reference/openai-realtime-integration`;
+  }
+
+  return null;
+}
+
+function getLegacyAiPath(segments: string[]) {
+  const [locale, tab, group, ...rest] = segments;
+
+  if ((locale !== 'en' && locale !== 'zh-CN') || tab !== 'ai') {
+    return null;
+  }
+
+  const [leaf, subleaf] = rest;
+
+  if (group === 'build' && leaf) {
+    const groupedBuildLeaf = LEGACY_AI_BUILD_GROUP_ROUTE_LEAVES[leaf];
+
+    if (groupedBuildLeaf && rest.length === 1) {
+      return `/${locale}/ai/build/${groupedBuildLeaf}`;
+    }
+
+    if (leaf === 'reference') {
+      const referenceLeaf = rest.at(1);
+
+      return referenceLeaf ? `/${locale}/ai/reference/${referenceLeaf}` : null;
+    }
+
+    if (leaf === 'get-started') {
+      return subleaf ? `/${locale}/ai/get-started/${subleaf}` : null;
+    }
+
+    if (leaf === 'best-practices') {
+      return subleaf ? `/${locale}/ai/best-practices/${subleaf}` : null;
+    }
+
+    if (leaf === 'custom-model-integration') {
+      const movedLeaf = LEGACY_AI_BUILD_CUSTOM_MODEL_ROUTE_LEAVES[subleaf];
+
+      if (movedLeaf) {
+        return `/${locale}/ai/build/${movedLeaf}`;
+      }
+    }
+
+    if (leaf === 'shape-the-conversation') {
+      const movedLeaf = LEGACY_AI_BUILD_SHAPE_ROUTE_LEAVES[subleaf];
+
+      if (movedLeaf) {
+        return `/${locale}/ai/build/${movedLeaf}`;
+      }
+    }
+
+    if (leaf === 'handle-runtime-events') {
+      const movedLeaf = LEGACY_AI_BUILD_RUNTIME_EVENTS_ROUTE_LEAVES[subleaf];
+
+      if (movedLeaf) {
+        return `/${locale}/ai/build/${movedLeaf}`;
+      }
+    }
+  }
+
+  if (group === 'api-reference') {
+    const conversationalAiPath = getLegacyConversationalAiRestPath([
+      locale,
+      'api-reference',
+      ...rest,
+    ]);
+
+    if (conversationalAiPath) {
+      return conversationalAiPath;
+    }
+  }
+
+  if (group === 'introduction' && leaf === 'realtime-audio-video') {
+    return `/${locale}/introduction/realtime-audio-video`;
+  }
+
+  return null;
+}
+
+const LEGACY_OPERATION_ROUTE_LEAVES: Record<string, string> = {
+  'agent-interrupt': 'interrupt',
+  'agent-speak': 'speak',
+  'agent-think': 'think',
+  'agent-update': 'update',
+  'get-agent-list': 'list',
+  'get-history': 'history',
+  'get-turns': 'turns',
+  'query-agent-status': 'query',
+  'start-agent': 'join',
+  'stop-agent': 'leave',
+};
+
+const LEGACY_CONVERSATIONAL_AI_AGENT_ROUTE_LEAVES: Record<string, string> = {
+  history: 'history',
+  interrupt: 'interrupt',
+  join: 'join',
+  leave: 'leave',
+  list: 'list',
+  query: 'query',
+  speak: 'speak',
+  think: 'think',
+  turns: 'turns',
+  update: 'update',
+};
+
+const LEGACY_USER_GUIDE_PATHS: Record<string, (locale: string) => string> = {
+  'custom-data': (locale) => `/${locale}/ai/custom-data`,
+  'realtime-sub': (locale) => `/${locale}/ai/realtime-sub`,
+  'short-term-memory': (locale) => `/${locale}/ai/short-term-memory`,
+};
+
+const LEGACY_GET_STARTED_PATHS: Record<string, (locale: string) => string> = {
+  'enable-service': (locale) =>
+    locale === 'zh-CN'
+      ? '/zh-CN/ai/enable-service'
+      : '/en/ai/reference/enable-conversational-ai',
+};
+
+const LEGACY_AI_BUILD_GROUP_ROUTE_LEAVES: Record<string, string> = {
+  'debug-agent-failures': 'handle-runtime-events/debug-agent-failures',
+  'event-notifications': 'handle-runtime-events/event-notifications',
+  'get-runtime-events': 'handle-runtime-events/get-runtime-events',
+  'mcp-tools': 'tools/mcp-tools',
+  'monitor-agent-runtime': 'handle-runtime-events/monitor-agent-runtime',
+  presets: 'custom-model-integration/presets',
+  'retrieve-session-history': 'handle-runtime-events/retrieve-session-history',
+  webhooks: 'handle-runtime-events/webhooks',
+};
+
+const LEGACY_AI_BUILD_CUSTOM_MODEL_ROUTE_LEAVES: Record<string, string> = {
+  'build-server-client': 'build-server-client',
+  'custom-tools': 'tools/custom-tools',
+  'managed-mode': 'managed-mode',
+  transcripts: 'transcripts',
+};
+
+const LEGACY_AI_BUILD_SHAPE_ROUTE_LEAVES: Record<string, string> = {
+  'custom-llm': 'custom-model-integration/custom-llm',
+};
+
+const LEGACY_AI_BUILD_RUNTIME_EVENTS_ROUTE_LEAVES: Record<string, string> = {
+  'interrupt-agent': 'shape-the-conversation/interrupt-agent',
+  'short-term-memory': 'shape-the-conversation/short-term-memory',
+  transcripts: 'transcripts',
+};
+
+const LEGACY_ABSOLUTE_PATHS: Record<string, string> = {
+  '/api-reference/conversational-ai/rest-api':
+    '/en/api-reference/api-ref/conversational-ai',
+  '/api-reference/conversational-ai/rest-api/agent/history':
+    '/en/api-reference/api-ref/conversational-ai/history',
+  '/api-reference/conversational-ai/rest-api/agent/interrupt':
+    '/en/api-reference/api-ref/conversational-ai/interrupt',
+  '/api-reference/conversational-ai/rest-api/agent/join':
+    '/en/api-reference/api-ref/conversational-ai/join',
+  '/api-reference/conversational-ai/rest-api/agent/leave':
+    '/en/api-reference/api-ref/conversational-ai/leave',
+  '/api-reference/conversational-ai/rest-api/agent/list':
+    '/en/api-reference/api-ref/conversational-ai/list',
+  '/api-reference/conversational-ai/rest-api/agent/query':
+    '/en/api-reference/api-ref/conversational-ai/query',
+  '/api-reference/conversational-ai/rest-api/agent/speak':
+    '/en/api-reference/api-ref/conversational-ai/speak',
+  '/api-reference/conversational-ai/rest-api/agent/think':
+    '/en/api-reference/api-ref/conversational-ai/think',
+  '/api-reference/conversational-ai/rest-api/agent/turns':
+    '/en/api-reference/api-ref/conversational-ai/turns',
+  '/api-reference/conversational-ai/rest-api/agent/update':
+    '/en/api-reference/api-ref/conversational-ai/update',
+  '/api-reference/conversational-ai/rest-api/authentication':
+    '/en/api-reference/api-ref/conversational-ai/authentication',
+  '/api-reference/conversational-ai/rest-api/status-codes':
+    '/en/api-reference/api-ref/conversational-ai/status-codes',
+  '/doc/convoai/restful/webhook/ncs-events': '/zh-CN/api-reference/ncs-events',
+  '/en/sdks': '/en/api-reference/sdks',
+  '/api-reference': '/en/api-reference',
+  '/conversational-ai/develop/managed-mode':
+    '/en/ai/build/custom-model-integration/presets',
+  '/extensions-marketplace/get-started/quickstart-implement':
+    '/en/api-reference/api-ref/extensions-marketplace/provisioning',
+  '/help/account-and-billing/billing_account':
+    '/en/api-reference/faq/account/billing_account',
+  '/help/integration-issues/token_cohost':
+    '/en/realtime-media/rtc/build/authenticate-users/deploy-token-server',
+  '/help/integration-issues/token_related_issues':
+    '/en/realtime-media/rtc/build/authenticate-users/deploy-token-server',
+  '/en/api-reference/media-push': '/en/api-reference/api-ref/media-push',
+  '/en/api-reference/rtc': '/en/api-reference/api-ref/rtc',
+  '/en/realtime-media/sdks': '/en/api-reference/sdks',
+  '/en/3.x/video-calling/introduction/release-notes':
+    '/en/realtime-media/rtc/reference/release-notes',
+  '/media-push/product-overview': '/en/api-reference/api-ref/rtc',
+  '/sdks': '/en/api-reference/sdks',
+  '/en/ai/best-practices/start-stop-agent': '/en/ai/build/start-stop-agent',
+  '/en/ai/models/mllm/overview': '/en/ai/models/mllm/gemini',
+  '/en/best-practices/geofencing':
+    '/en/realtime-media/rtc/build/manage-connection-and-quality/geofencing',
+  '/en/api-reference/api-ref/conversational-ai/server-sdk/go':
+    '/en/api-reference/api-ref/server-sdk/go',
+  '/en/api-reference/api-ref/conversational-ai/server-sdk/python':
+    '/en/api-reference/api-ref/server-sdk/python',
+  '/en/api-reference/api-ref/conversational-ai/server-sdk/typescript':
+    '/en/api-reference/api-ref/server-sdk/typescript',
+  '/video-calling/get-started/get-started-sdk':
+    '/en/realtime-media/rtc/get-started-sdk',
+  '/video-calling/token-authentication/authentication-workflow':
+    '/en/realtime-media/rtc/build/authenticate-users/authentication-workflow',
+  '/video-calling/token-authentication/deploy-token-server':
+    '/en/realtime-media/rtc/build/authenticate-users/deploy-token-server',
+};
+
+function getRtcAndroidVersionScope(contentPath?: string) {
+  if (!contentPath) {
+    return null;
+  }
+
+  const [locale, tab, product, platform, version] = contentPath
+    .split('/')
+    .filter(Boolean);
+
+  if (
+    tab !== 'api-reference' ||
+    product !== 'rtc' ||
+    platform !== 'android' ||
+    !version ||
+    /\.mdx?$/i.test(version) ||
+    version === '(current)'
+  ) {
+    return null;
+  }
+
+  return { locale, version };
+}
+
+function splitHref(href: string) {
+  const hashIndex = href.indexOf('#');
+  const beforeHash = hashIndex === -1 ? href : href.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? '' : href.slice(hashIndex);
+  const searchIndex = beforeHash.indexOf('?');
+
+  if (searchIndex === -1) {
+    return { path: beforeHash, search: '', hash };
+  }
+
+  return {
+    path: beforeHash.slice(0, searchIndex),
+    search: beforeHash.slice(searchIndex),
+    hash,
+  };
+}
+
+function dirname(path: string) {
+  const segments = path.split('/').filter(Boolean);
+  segments.pop();
+  return segments.join('/');
+}
+
+function resolveRelativePath(baseDir: string, relativePath: string) {
+  const segments = [...baseDir.split('/'), ...relativePath.split('/')];
+  const normalized: string[] = [];
+
+  for (const segment of segments) {
+    if (!segment || segment === '.') {
+      continue;
+    }
+
+    if (segment === '..') {
+      normalized.pop();
+      continue;
+    }
+
+    normalized.push(segment);
+  }
+
+  return normalized.join('/');
+}

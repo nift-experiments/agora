@@ -1,0 +1,1903 @@
+---
+title: Python
+description: Full API reference for the Agora Agent Python SDK
+---
+
+Full API reference for the Agora Conversational AI Python SDK.
+
+Install the SDK from PyPI. The import package is `agora_agent`.
+
+```bash
+pip install agora-agents
+```
+
+## Agora / AsyncAgora Client
+
+`Agora` (sync) and `AsyncAgora` (async) extend the Fern-generated base client with regional domain pool support and three authentication modes. Use `Agora` for synchronous applications and `AsyncAgora` for asyncio-based applications.
+
+```python
+from agora_agent import Agora, Area
+client = Agora(
+    area=Area.US,
+    app_id='your-app-id',
+    app_certificate='your-app-certificate',
+)
+```
+
+See [Sync vs. Async](#sync-vs-async) to choose the right client for your application.
+
+### Constructor
+
+```python
+Agora(
+    *,
+    area: Area,
+    app_id: str,
+    app_certificate: str,
+    customer_id: Optional[str] = None,
+    customer_secret: Optional[str] = None,
+    auth_token: Optional[str] = None,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: Optional[float] = None,
+    follow_redirects: Optional[bool] = True,
+    httpx_client: Optional[httpx.Client] = None,
+    debug: bool = False,
+)
+```
+
+`app_id` and `app_certificate` are always required. Add `customer_id` and `customer_secret` for Basic Auth, or `auth_token` for token mode.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `area` | [`Area`](#area) | Yes | — | Region for API routing |
+| `app_id` | `str` | Yes | — | Agora App ID |
+| `app_certificate` | `str` | Yes | — | Agora App Certificate. Keep this secret and never expose it client-side |
+| `customer_id` | `str` | No | `None` | Customer ID (Basic Auth mode). Requires `customer_secret` |
+| `customer_secret` | `str` | No | `None` | Customer Secret (Basic Auth mode) |
+| `auth_token` | `str` | No | `None` | Raw token string. The SDK sends `Authorization: agora token=<auth_token>`. Can't be combined with `customer_id` and `customer_secret` |
+| `headers` | `Dict[str, str]` | No | `None` | Additional headers sent with every request |
+| `timeout` | `float` | No | `None` | Request timeout in seconds. Effectively 60 seconds when not set |
+| `follow_redirects` | `bool` | No | `True` | Whether to follow HTTP redirects |
+| `httpx_client` | `httpx.Client` | No | `None` | Custom httpx client instance |
+| `debug` | `bool` | No | `False` | Log HTTP requests and responses, with secrets redacted. Ignored when `httpx_client` is set |
+
+Authentication mode is resolved from the parameters you provide:
+
+| Parameters provided | Resolved mode |
+|---|---|
+| `customer_id` + `customer_secret` | `"basic"` |
+| `auth_token` | `"token"` |
+| Neither | `"app-credentials"` |
+
+Passing `customer_id` without `customer_secret`, or combining `auth_token` with `customer_id`, raises `ValueError`.
+
+`AsyncAgora` has the same constructor signature, except `httpx_client` accepts `httpx.AsyncClient` instead of `httpx.Client`.
+
+```python
+from agora_agent import AsyncAgora, Area
+client = AsyncAgora(
+    area=Area.US,
+    app_id='your-app-id',
+    app_certificate='your-app-certificate',
+)
+```
+
+See [Authentication](/en/api-reference/api-ref/conversational-ai/authentication) for details on each mode.
+
+### Properties
+
+#### `pool`
+
+Access the underlying `Pool` object for advanced domain management.
+
+```python
+pool = client.pool
+pool.get_area()  # Area.US
+```
+
+- **Returns:** `Pool`
+
+#### `area` and `area_scope`
+
+`area` returns the configured [`Area`](#area). `area_scope` returns `"global"` or `"cn"`.
+
+### Methods
+
+The following methods are available in addition to the Fern-generated sub-client methods.
+
+#### `next_region()`
+
+Cycles to the next region prefix in the domain pool. Call this after a request failure to try a different regional endpoint. Synchronous on both `Agora` and `AsyncAgora`.
+
+```python
+client.next_region()
+```
+
+#### `select_best_domain()`
+
+Triggers DNS-based domain selection to find the fastest-responding domain suffix. Results are cached for 30 seconds.
+
+```python
+# Sync (Agora)
+client.select_best_domain()
+
+# Async (AsyncAgora) — requires await
+await client.select_best_domain()
+```
+
+#### `stop_agent(agent_id)`
+
+Stops an agent by ID without an `AgentSession` reference, for example, from an end-call handler. The method treats a `404` response as success. Synchronous on `Agora`, `async` on `AsyncAgora`.
+
+```python
+# Sync (Agora)
+client.stop_agent(agent_id)
+
+# Async (AsyncAgora)
+await client.stop_agent(agent_id)
+```
+
+#### `get_current_url()`
+
+Returns the full API URL currently in use as a `str`. Synchronous on both `Agora` and `AsyncAgora`.
+
+```python
+url = client.get_current_url()
+# Example: 'https://api-us-west-1.agora.io/api/conversational-ai-agent'
+```
+
+### Sub-clients
+
+Both `Agora` and `AsyncAgora` expose Fern-generated sub-clients for direct REST API access. You typically do not need these when using the [agentkit layer](#agent).
+
+| Property | Sync type | Async type | Description |
+|---|---|---|---|
+| `client.agents` | `AgentsClient` | `AsyncAgentsClient` | Start, stop, list, update agents |
+| `client.agent_management` | `AgentManagementClient` | `AsyncAgentManagementClient` | Inject instructions into a running agent (`think`) |
+| `client.telephony` | `TelephonyClient` | `AsyncTelephonyClient` | Telephony operations |
+| `client.phone_numbers` | `PhoneNumbersClient` | `AsyncPhoneNumbersClient` | Phone number management |
+
+Sub-clients are lazily initialized on first access. For most use cases, prefer the [`AgentSession`](#agentsession-asyncagentsession) API over calling `client.agents` directly.
+
+For full method signatures and request parameters, see the [REST API reference](/en/api-reference/api-ref/conversational-ai/join).
+
+## Agent
+
+`Agent` is an immutable configuration object. Each builder method returns a new `Agent` instance — the original is never modified. Define one `Agent` at startup and call `create_session()` on it for each user conversation.
+
+```python
+from agora_agent import Agent
+```
+
+### Constructor
+
+```python
+Agent(
+    client: Agora | AsyncAgora,
+    instructions: Optional[str] = None,
+    turn_detection: Optional[TurnDetectionConfig | dict] = None,
+    interruption: Optional[InterruptionConfig] = None,
+    sal: Optional[SalConfig] = None,
+    advanced_features: Optional[Dict[str, Any]] = None,
+    parameters: Optional[SessionParams | dict] = None,
+    greeting: Optional[str] = None,
+    failure_message: Optional[str] = None,
+    max_history: Optional[int] = None,
+    geofence: Optional[GeofenceConfig] = None,
+    labels: Optional[Dict[str, str]] = None,
+    rtc: Optional[RtcConfig] = None,
+    filler_words: Optional[FillerWordsConfig] = None,
+    greeting_configs: Optional[Dict[str, Any]] = None,
+    pipeline_id: Optional[str] = None,
+)
+```
+
+`client` is required. Omitting it raises `TypeError`. All other parameters are optional. Use the [builder methods](#builder-methods-1) to set vendor configuration after construction.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `client` | `Agora` or `AsyncAgora` | — | Authenticated client used by sessions |
+| `pipeline_id` | `Optional[str]` | `None` | Published AI Studio pipeline ID used as the base configuration |
+| `instructions` | `Optional[str]` | `None` | Deprecated. Set `system_messages` on the LLM vendor instead |
+| `turn_detection` | `Optional[TurnDetectionConfig]` | `None` | Voice activity detection settings |
+| `interruption` | `Optional[InterruptionConfig]` | `None` | Unified interruption control configuration |
+| `sal` | `Optional[SalConfig]` | `None` | Selective Attention Locking configuration |
+| `advanced_features` | `Optional[Dict[str, Any]]` | `None` | Advanced features, for example `{'enable_rtm': True}` |
+| `parameters` | `Optional[SessionParams]` | `None` | Additional session parameters |
+| `greeting` | `Optional[str]` | `None` | Deprecated. Set `greeting_message` on the LLM or MLLM vendor instead |
+| `failure_message` | `Optional[str]` | `None` | Deprecated. Set `failure_message` on the LLM or MLLM vendor instead |
+| `max_history` | `Optional[int]` | `None` | Deprecated. Set `max_history` on the LLM vendor instead |
+| `greeting_configs` | `Optional[Dict[str, Any]]` | `None` | Deprecated. Set `greeting_configs` on the LLM vendor instead |
+| `geofence` | `Optional[GeofenceConfig]` | `None` | Regional access restriction |
+| `labels` | `Optional[Dict[str, str]]` | `None` | Custom key-value labels returned in notification callbacks |
+| `rtc` | `Optional[RtcConfig]` | `None` | RTC media encryption |
+| `filler_words` | `Optional[FillerWordsConfig]` | `None` | Filler words played while waiting for the LLM response |
+
+### Builder methods
+
+All builder methods return a **new** `Agent` instance. The original is never modified.
+
+#### `with_llm(vendor)`
+
+Sets the LLM vendor for the cascading flow. Pass an instance of [`OpenAI`](#openai-1), [`AzureOpenAI`](#azureopenai-1), [`Anthropic`](#anthropic-1), or [`Gemini`](#gemini-1).
+
+```python
+with_llm(vendor: BaseLLM) -> Agent
+```
+
+#### `with_tts(vendor)`
+
+Sets the TTS vendor. Records the vendor's `sample_rate` for [avatar](#avatar-vendors-1) validation. Raises `ValueError` if an avatar is already set and its required sample rate differs.
+
+```python
+with_tts(vendor: BaseTTS) -> Agent
+```
+
+#### `with_stt(vendor)`
+
+Sets the STT vendor. Pass an instance of any [STT vendor class](#stt-vendors-1).
+
+```python
+with_stt(vendor: BaseSTT) -> Agent
+```
+
+#### `with_mllm(vendor)`
+
+Sets the MLLM vendor for multimodal flow. Pass an instance of any MLLM vendor class, including [`OpenAIGPTLive`](#openaigptlive). Calling `with_mllm()` automatically sets `mllm.enable = True`. MLLM sessions do not require TTS, STT, or LLM vendors.
+
+```python
+with_mllm(vendor: BaseMLLM) -> Agent
+```
+
+#### `with_avatar(vendor)`
+
+Sets the avatar vendor. Raises `ValueError` if the TTS sample rate does not match the avatar's required rate.
+
+```python
+with_avatar(vendor: BaseAvatar) -> Agent
+```
+
+**Raises:** `ValueError` — if TTS sample rate does not match the avatar's `required_sample_rate`.
+
+#### `with_turn_detection(config)`
+
+Configures cascading-flow SOS/EOS voice activity detection. Use `config.start_of_speech` and `config.end_of_speech` for SOS/EOS detection. Use `with_interruption()` for interruption behavior and MLLM vendor `turn_detection` for MLLM turn detection.
+
+```python
+with_turn_detection(config: TurnDetectionConfig) -> Agent
+```
+
+#### `with_interruption(config)`
+
+Configures unified interruption behavior using the top-level `interruption` object. Use this for `start_of_speech` and `keywords` interruption modes.
+
+```python
+with_interruption(config: InterruptionConfig) -> Agent
+```
+
+#### `with_instructions(instructions)`
+
+Overrides the LLM system prompt on a new `Agent` instance. Deprecated. Set `system_messages` on the LLM vendor instead.
+
+```python
+with_instructions(instructions: str) -> Agent
+```
+
+#### `with_greeting(greeting)`
+
+Overrides the greeting message on a new `Agent` instance. Deprecated. Set `greeting_message` on the LLM or MLLM vendor instead.
+
+```python
+with_greeting(greeting: str) -> Agent
+```
+
+#### Other builder methods
+
+The following methods follow the same pattern — each returns a new `Agent` instance with the updated configuration.
+
+| Method | Parameter type | Description |
+|---|---|---|
+| `with_sal(config)` | `SalConfig` | Set Selective Attention Locking configuration |
+| `with_advanced_features(features)` | `Dict[str, Any]` | Set advanced features |
+| `with_tools(enabled=True)` | `bool` | Enable or disable MCP tool and custom tool invocation |
+| `with_parameters(parameters)` | `SessionParams` or `dict` | Set session parameters |
+| `with_audio_scenario(audio_scenario)` | `str` | Set the RTC audio scenario (`parameters.audio_scenario`) |
+| `with_failure_message(message)` | `str` | Deprecated. Set `failure_message` on the LLM or MLLM vendor instead |
+| `with_max_history(max_history)` | `int` | Deprecated. Set `max_history` on the LLM vendor instead |
+| `with_greeting_configs(configs)` | `Dict[str, Any]` | Deprecated. Set `greeting_configs` on the LLM vendor instead |
+| `with_geofence(geofence)` | `GeofenceConfig` | Set geofence configuration |
+| `with_labels(labels)` | `Dict[str, str]` | Set custom labels |
+| `with_rtc(rtc)` | `RtcConfig` | Set RTC configuration |
+| `with_filler_words(filler_words)` | `FillerWordsConfig` | Set filler words configuration |
+
+### `create_session()`
+
+Creates a sync [`AgentSession`](#agentsession-asyncagentsession) using the client bound to this `Agent`. Doesn't start the agent. Call [`session.start()`](#start-1) to join the channel.
+
+```python
+create_session(
+    channel: str,
+    agent_uid: str,
+    remote_uids: List[str],
+    name: Optional[str] = None,
+    token: Optional[str] = None,
+    idle_timeout: Optional[int] = None,
+    enable_string_uid: Optional[bool] = None,
+    preset: Optional[str | Sequence[str]] = None,
+    pipeline_id: Optional[str] = None,
+    expires_in: Optional[int] = None,
+    debug: Optional[bool] = None,
+    warn: Optional[Callable[[str], None]] = None,
+) -> AgentSession
+```
+
+`create_session()` fields:
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `channel` | `str` | Yes | Channel name to join |
+| `agent_uid` | `str` | Yes | The agent's RTC UID. Must be a numeric string when the token is auto-generated |
+| `remote_uids` | `List[str]` | Yes | Remote user UIDs the agent listens and responds to |
+| `name` | `Optional[str]` | No | Agent instance name. `Agent` has no name option, so set it here. Defaults to `agent-{timestamp}` |
+| `token` | `Optional[str]` | No | Pre-built RTC+RTM token. Omit to auto-generate from app credentials |
+| `expires_in` | `Optional[int]` | No | Token lifetime in seconds. Only applies when the token is auto-generated. Valid range: 1–86400. Use [`expires_in_hours()`](#expires_in_hours-expires_in_minutes) for clarity |
+| `idle_timeout` | `Optional[int]` | No | Seconds before the agent auto-exits when no audio is detected |
+| `enable_string_uid` | `Optional[bool]` | No | Use string UIDs instead of numeric UIDs |
+| `preset` | `Optional[str \| Sequence[str]]` | No | Advanced project-specific presets. Most applications should not set this |
+| `pipeline_id` | `Optional[str]` | No | Published AI Studio pipeline ID. Overrides the agent-level value |
+| `debug` | `Optional[bool]` | No | Print the redacted start request |
+| `warn` | `Optional[Callable[[str], None]]` | No | Callback that receives SDK warning messages |
+
+### `create_async_session()`
+
+Takes the same parameters as [`create_session()`](#create_session) and returns an [`AsyncAgentSession`](#agentsession-asyncagentsession). Use it with an `Agent` bound to an `AsyncAgora` client.
+
+```python
+create_async_session(...) -> AsyncAgentSession
+```
+
+### `to_properties()`
+
+Converts the agent configuration into a `StartAgentsRequestProperties` object for the Agora API. Called internally by `AgentSession.start()`.
+
+```python
+to_properties(
+    channel: str,
+    agent_uid: str,
+    remote_uids: List[str],
+    idle_timeout: Optional[int] = None,
+    enable_string_uid: Optional[bool] = None,
+    token: Optional[str] = None,
+    app_id: Optional[str] = None,
+    app_certificate: Optional[str] = None,
+    expires_in: Optional[int] = None,
+    skip_vendor_validation: bool = False,
+    skip_vendor_validation_categories: Optional[AbstractSet[str]] = None,
+    allow_missing_vendor_categories: Optional[AbstractSet[str]] = None,
+) -> StartAgentsRequestProperties
+```
+
+`skip_vendor_validation` is deprecated. Use `skip_vendor_validation_categories` and `allow_missing_vendor_categories` instead.
+
+**Raises:** `ValueError` if neither `token` nor `app_id`+`app_certificate` is provided, if required vendors (LLM, TTS) are missing in cascading mode, if an enabled avatar is combined with MLLM, or if `agent_uid` isn't numeric when the SDK generates a token.
+
+### Properties
+
+Read-only properties available on any `Agent` instance.
+
+| Property | Type | Description |
+|---|---|---|
+| `pipeline_id` | `Optional[str]` | AI Studio pipeline ID |
+| `tts_sample_rate` | `Optional[int]` | TTS sample rate |
+| `greeting_configs` | `Optional[Dict[str, Any]]` | Greeting playback configuration |
+| `instructions` | `Optional[str]` | LLM system prompt |
+| `greeting` | `Optional[str]` | Greeting message |
+| `failure_message` | `Optional[str]` | Message spoken when LLM fails |
+| `max_history` | `Optional[int]` | Maximum conversation history length |
+| `llm` | `Optional[Dict[str, Any]]` | LLM config dict (from `to_config()`) |
+| `tts` | `Optional[Dict[str, Any]]` | TTS config dict |
+| `stt` | `Optional[Dict[str, Any]]` | STT config dict |
+| `mllm` | `Optional[Dict[str, Any]]` | MLLM config dict |
+| `avatar` | `Optional[Dict[str, Any]]` | Avatar config dict |
+| `turn_detection` | `Optional[TurnDetectionConfig]` | Turn detection configuration |
+| `interruption` | `Optional[InterruptionConfig]` | Unified interruption control configuration |
+| `sal` | `Optional[SalConfig]` | SAL configuration |
+| `advanced_features` | `Optional[Dict[str, Any]]` | Advanced features |
+| `parameters` | `Optional[SessionParams]` | Session parameters |
+| `geofence` | `Optional[GeofenceConfig]` | Geofence configuration |
+| `labels` | `Optional[Dict[str, str]]` | Custom labels |
+| `rtc` | `Optional[RtcConfig]` | RTC configuration |
+| `filler_words` | `Optional[FillerWordsConfig]` | Filler words configuration |
+| `config` | `Dict[str, Any]` | Full configuration snapshot |
+
+### Type aliases
+
+Public aliases over Fern-generated types: `LlmConfig`, `SttConfig`, `AsrConfig` (= `SttConfig`), `MllmConfig`, `AvatarConfig`, session/conversation types, and think types (`ThinkOnListeningAction`, etc.).
+
+Think value constants: `ThinkOnListeningActionInject`, `ThinkOnListeningActionInterrupt`, `ThinkOnListeningActionIgnore`, `ThinkOnThinkingActionInterrupt`, `ThinkOnThinkingActionIgnore`, `ThinkOnSpeakingActionInterrupt`, `ThinkOnSpeakingActionIgnore`. The think action parameters also accept the string `append`, which has no convenience constant.
+
+`FillerWordsConfig` supports static and generated filler words. In generated mode, `generated_config`, `prompt`, and the static fallback phrases are optional. If you omit `generated_config`, the service uses its default generation settings. Agora hosts the generation service, so you can't configure its model endpoint, API key, or model parameters. The only supported fallback strategy is `static`. For the field structure, see [Configure generated filler words](/en/ai/build/shape-the-conversation/filler-words#configure-generated-filler-words).
+
+Public aliases also include `FillerWordsContentGeneratedConfig` and the custom tool types `LlmToolConfig`, `LlmToolFunctionConfig`, `LlmToolFunctionParametersConfig`, `LlmToolExecutionConfig`, and `LlmToolServerConfig`.
+
+`FillerWordsContentGeneratedConfig` sets the conversation context for generated filler words. Use `context_message_limit` (`1` to `6`, defaults to `1`) to set how many of the most recent conversation messages to use, counting the current turn's message, and `history_character_limit` (`0` to `10000`, defaults to `1000`) to cap the combined characters of the earlier messages. For details, see [Talking while waiting](/en/ai/build/shape-the-conversation/filler-words#widen-the-conversation-window).
+
+
+## AgentSession / AsyncAgentSession
+
+`AgentSession` (sync) and `AsyncAgentSession` (async) manage the full lifecycle of a running agent. Obtain a session with [`agent.create_session()`](#create_session) (sync) or [`agent.create_async_session()`](#create_async_session) (async). Direct construction is available for advanced use cases.
+
+```python
+from agora_agent.agentkit import AgentSession, AsyncAgentSession
+```
+
+### Constructor
+
+Sessions are normally created via `Agent.create_session()`. Direct construction is available for advanced use:
+
+```python
+AgentSession(
+    client: Any,
+    agent: Agent,
+    app_id: str,
+    name: str,
+    channel: str,
+    agent_uid: str,
+    remote_uids: List[str],
+    app_certificate: Optional[str] = None,
+    token: Optional[str] = None,
+    idle_timeout: Optional[int] = None,
+    enable_string_uid: Optional[bool] = None,
+    preset: Optional[str | Sequence[str]] = None,
+    pipeline_id: Optional[str] = None,
+    expires_in: Optional[int] = None,
+    debug: Optional[bool] = None,
+    warn: Optional[Callable[[str], None]] = None,
+)
+```
+
+`AsyncAgentSession` has the same constructor signature.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `client` | `Agora` or `AsyncAgora` | Yes | Authenticated client |
+| `agent` | `Agent` | Yes | Agent configuration |
+| `app_id` | `str` | Yes | Agora App ID |
+| `name` | `str` | Yes | Session name |
+| `channel` | `str` | Yes | Channel name |
+| `agent_uid` | `str` | Yes | UID for the agent |
+| `remote_uids` | `List[str]` | Yes | UIDs of remote participants |
+| `app_certificate` | `Optional[str]` | No | App Certificate (for auto token generation) |
+| `token` | `Optional[str]` | No | Pre-built RTC+RTM token |
+| `idle_timeout` | `Optional[int]` | No | Idle timeout in seconds |
+| `enable_string_uid` | `Optional[bool]` | No | Enable string UIDs |
+| `preset` | `Optional[str \| Sequence[str]]` | No | Advanced project-specific presets |
+| `pipeline_id` | `Optional[str]` | No | Published AI Studio pipeline ID |
+| `expires_in` | `Optional[int]` | No | Auto-generated token lifetime in seconds |
+| `debug` | `Optional[bool]` | No | Print the redacted start request |
+| `warn` | `Optional[Callable[[str], None]]` | No | Callback that receives SDK warning messages |
+
+### Methods
+
+The following methods are available on both `AgentSession` and `AsyncAgentSession`. Methods that make API calls require `await` on `AsyncAgentSession`.
+
+#### `start()`
+
+Starts the agent session. Generates an RTC token if not provided, validates avatar/TTS config for cascading sessions, and calls the Agora API. MLLM sessions do not require TTS; an enabled avatar is rejected when MLLM is configured (a disabled avatar is allowed).
+
+| | Sync (`AgentSession`) | Async (`AsyncAgentSession`) |
+|---|---|---|
+| **Signature** | `start() -> str` | `async start() -> str` |
+| **Returns** | Agent ID | Agent ID |
+| **Raises** | `RuntimeError` if not in `idle`, `stopped`, or `error` state | Same |
+| **Raises** | `ValueError` if the avatar and TTS sample rates don't match, an enabled avatar is used with MLLM, or `agent_uid` isn't a numeric string when auto-generating a token | Same |
+| **Raises** | `ApiError` on API failure | Same |
+
+```python
+# Sync
+agent_id = session.start()
+
+# Async
+agent_id = await session.start()
+```
+
+#### `stop()`
+
+Stops the agent session and removes the agent from the channel. If the agent has already stopped (404 from API), transitions to `stopped` without raising.
+
+| | Sync | Async |
+|---|---|---|
+| **Signature** | `stop() -> None` | `async stop() -> None` |
+| **Raises** | `RuntimeError` if not in `running` state | Same |
+
+```python
+# Sync
+session.stop()
+
+# Async
+await session.stop()
+```
+
+#### `say(text, priority=None, interruptable=None)`
+
+Instructs the agent to speak the given text.
+
+| | Sync | Async |
+|---|---|---|
+| **Signature** | `say(text: str, priority: Optional[str] = None, interruptable: Optional[bool] = None, *, options: Optional[SayOptions] = None) -> None` | Same with `async` |
+| **Raises** | `RuntimeError` if not in `running` state | Same |
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `text` | `str` | Yes | Text to speak |
+| `priority` | `str` | No | `INTERRUPT`, `APPEND`, or `IGNORE` |
+| `interruptable` | `bool` | No | Whether the message can be interrupted |
+
+```python
+# Sync
+session.say('One moment while I look that up.', priority='INTERRUPT', interruptable=False)
+
+# Async
+await session.say('One moment while I look that up.', priority='INTERRUPT', interruptable=False)
+```
+
+#### `interrupt()`
+
+Interrupts the agent while speaking or thinking.
+
+| | Sync | Async |
+|---|---|---|
+| **Signature** | `interrupt() -> None` | `async interrupt() -> None` |
+| **Raises** | `RuntimeError` if not in `running` state | Same |
+
+```python
+# Sync
+session.interrupt()
+
+# Async
+await session.interrupt()
+```
+
+#### `update(properties)`
+
+Updates the agent configuration mid-session without restarting. Accepts a partial properties object in REST API format.
+
+| | Sync | Async |
+|---|---|---|
+| **Signature** | `update(properties: Any) -> None` | `async update(properties: Any) -> None` |
+| **Raises** | `RuntimeError` if not in `running` state | Same |
+
+```python
+from agora_agent.agentkit import AgentConfigUpdate
+
+# Sync
+session.update(properties)
+
+# Async
+await session.update(properties)
+```
+
+#### `think(text, ...)`
+
+Injects a custom text instruction into the running agent.
+
+| | Sync | Async |
+|---|---|---|
+| **Signature** | `think(text: str, *, on_listening_action=None, on_thinking_action=None, on_speaking_action=None, interruptable: Optional[bool] = None, metadata: Optional[Dict[str, str]] = None, options: Optional[ThinkOptions] = None) -> ThinkResponse` | Same with `async` |
+| **Raises** | `RuntimeError` if not in `running` state | Same |
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `text` | `str` | Yes | The instruction text |
+| `on_listening_action` | `str` | No | Action when the agent is listening: `inject`, `interrupt`, `ignore`, or `append` |
+| `on_thinking_action` | `str` | No | Action when the agent is thinking: `interrupt`, `ignore`, or `append` |
+| `on_speaking_action` | `str` | No | Action when the agent is speaking: `interrupt`, `ignore`, or `append` |
+| `interruptable` | `bool` | No | Whether the user can interrupt the resulting response |
+| `metadata` | `Dict[str, str]` | No | Custom key-value metadata |
+
+In API v2.7, omitting `on_listening_action` uses the server default `interrupt`. Pass `on_listening_action='inject'` explicitly to preserve the pre-v2.7 behavior.
+
+`on_listening_action`, `on_thinking_action`, and `on_speaking_action` all accept `append`. With `append`, the instruction doesn't interrupt the current interaction. The agent waits for the current user turn, LLM inference, or TTS playback to finish, then appends the instruction to the context as a separate user message and starts a new turn.
+
+```python
+session.think(
+    'Summarize the last answer',
+    on_listening_action='append',
+    on_thinking_action='append',
+    on_speaking_action='append',
+)
+```
+
+#### `get_history()`
+
+Fetches the conversation history for this session. Requires a valid agent ID — `start()` must have been called successfully.
+
+| | Sync | Async |
+|---|---|---|
+| **Signature** | `get_history() -> Any` | `async get_history() -> Any` |
+| **Raises** | `RuntimeError` if no agent ID | Same |
+
+```python
+# Sync
+history = session.get_history()
+
+# Async
+history = await session.get_history()
+```
+
+#### `get_turns(*, page_index=None, page_size=None)`
+
+Retrieves paginated turn analytics for a completed or running session. Parameters are keyword-only. Raises `RuntimeError` if there's no agent ID. Requires `await` on `AsyncAgentSession`. In v2.7, the API defaults to page 1 and up to 50 turns per page. Responses include `agent_id`, `name`, `channel`, `total_turn_count`, `pagination`, and `turns`.
+
+```python
+page = session.get_turns(page_index=1, page_size=50)
+```
+
+#### `get_all_turns(*, page_size=None)`
+
+Fetches all turn pages and returns a single `GetTurnsAgentsResponse` with the combined `turns` list.
+
+```python
+all_turns = session.get_all_turns(page_size=50)
+```
+
+#### `get_info()`
+
+Fetches current agent metadata from the API. Requires a valid agent ID.
+
+| | Sync | Async |
+|---|---|---|
+| **Signature** | `get_info() -> Any` | `async get_info() -> Any` |
+| **Raises** | `RuntimeError` if no agent ID | Same |
+
+```python
+# Sync
+info = session.get_info()
+
+# Async
+info = await session.get_info()
+```
+
+#### `on(event, handler)`
+
+Registers an event handler. Synchronous on both `AgentSession` and `AsyncAgentSession`. Register handlers **before** calling `start()` to avoid missing the `started` event.
+
+```python
+session.on('started', lambda data: print(f'Started: {data}'))
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `event` | `str` | Event type: `started`, `stopped`, or `error` |
+| `handler` | `Callable[..., None]` | Callback function |
+
+#### `off(event, handler)`
+
+Removes a previously registered event handler. Synchronous on both `AgentSession` and `AsyncAgentSession`.
+
+```python
+session.off('started', my_handler)
+```
+
+### Properties
+
+The following read-only properties are available on both `AgentSession` and `AsyncAgentSession` instances.
+
+| Property | Type | Description |
+|---|---|---|
+| `id` | `Optional[str]` | Agent ID, populated after `start()` resolves |
+| `status` | `str` | Current session state: `'idle'`, `'starting'`, `'running'`, `'stopping'`, `'stopped'`, `'error'` |
+| `agent` | `Agent` | The agent configuration this session was created from |
+| `app_id` | `str` | The Agora App ID for this session |
+| `raw` | `AgentsClient` or `AsyncAgentsClient` | Direct access to the Fern-generated agents client for advanced operations |
+| `raw_agent_management` | `AgentManagementClient` or `AsyncAgentManagementClient` | Direct access to the Fern-generated agent management client |
+
+### State transitions
+
+| Current state | Allowed actions |
+|---|---|
+| `idle` | `start()` |
+| `starting` | (waiting for API) |
+| `running` | `stop()`, `say()`, `interrupt()`, `update()`, `think()` |
+| `stopping` | (waiting for API) |
+| `stopped` | `start()` (restart) |
+| `error` | `start()` (retry) |
+
+`get_history()`, `get_info()`, `get_turns()`, and `get_all_turns()` work in any state after `start()` has returned an agent ID.
+
+## Vendors
+
+Vendor classes are exported from both `agora_agent` and `agora_agent.agentkit.vendors`.
+
+```python
+from agora_agent import OpenAI, ElevenLabsTTS, DeepgramTTS, DeepgramSTT, OpenAIRealtime, XaiGrok, GenericAvatar
+```
+
+### LLM vendors
+
+Use with [`with_llm()`](#with_llmvendor).
+
+:::info
+`greeting_configs` accepts either a dict or `LlmGreetingConfigs`. In v2.7, `greeting_configs.interruptable=False` makes the greeting uninterruptible; `True` follows the global `interruption` settings.
+:::
+
+#### OpenAI
+
+```python
+from agora_agent import OpenAI
+
+llm = OpenAI(
+    api_key='your-key',
+    base_url='https://api.openai.com/v1/chat/completions',
+    model='gpt-4o-mini',
+    temperature=0.7,
+)
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | No | `None` | OpenAI API key. Omit to use Agora-managed credentials for `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-5-nano`, or `gpt-5-mini` |
+| `model` | `str` | Yes | — | Model name |
+| `base_url` | `str` | Conditional | `None` | API endpoint URL. Required when `api_key` is set; not allowed without it |
+| `temperature` | `float` | No | `None` | Sampling temperature (0.0–2.0) |
+| `top_p` | `float` | No | `None` | Nucleus sampling (0.0–1.0) |
+| `max_tokens` | `int` | No | `None` | Maximum tokens to generate |
+| `system_messages` | `List[Dict]` | No | `None` | Additional system messages |
+| `greeting_message` | `str` | No | `None` | Agent greeting message |
+| `failure_message` | `str` | No | `None` | Message spoken when the LLM call fails |
+| `max_history` | `int` | No | `None` | Maximum number of conversation history messages to cache |
+| `input_modalities` | `List[str]` | No | `None` | Input modalities |
+| `output_modalities` | `List[str]` | No | `None` | Output modalities |
+| `greeting_configs` | `Dict[str, Any]` | No | `None` | Greeting configuration |
+| `template_variables` | `Dict[str, str]` | No | `None` | Template variables for system prompt interpolation. Serialized to `llm.template_variables`, where custom tools can reference them with `{{template_variables.<name>}}` |
+| `headers` | `Dict[str, str]` | No | `None` | Custom HTTP headers forwarded to the LLM provider |
+| `params` | `Dict[str, Any]` | No | `None` | Additional model parameters |
+| `vendor` | `str` | No | `None` | Vendor override |
+| `mcp_servers` | `List[Dict]` | No | `None` | MCP server connections |
+| `tools` | `List[Dict[str, Any]]` | No | `None` | Synchronous custom tool definitions the LLM can call. Accepts dictionaries or `LlmToolConfig` objects. Requires `with_tools(True)` |
+
+#### AzureOpenAI
+
+```python
+from agora_agent import AzureOpenAI
+
+llm = AzureOpenAI(
+    api_key='your-azure-key',
+    model='gpt-4o-mini',
+    endpoint='https://your-resource.openai.azure.com',
+    deployment_name='gpt-4o-mini',
+)
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Azure OpenAI API key |
+| `model` | `str` | Yes | — | Azure deployment model name |
+| `endpoint` | `str` | Yes | — | Azure endpoint URL |
+| `deployment_name` | `str` | Yes | — | Azure deployment name |
+| `api_version` | `str` | No | `'2024-08-01-preview'` | Azure API version |
+| `temperature` | `float` | No | `None` | Sampling temperature (0.0–2.0) |
+| `top_p` | `float` | No | `None` | Nucleus sampling (0.0–1.0) |
+| `max_tokens` | `int` | No | `None` | Maximum tokens to generate |
+| `system_messages` | `List[Dict]` | No | `None` | Additional system messages |
+| `greeting_message` | `str` | No | `None` | Agent greeting message |
+| `failure_message` | `str` | No | `None` | Message spoken when the LLM call fails |
+| `max_history` | `int` | No | `None` | Maximum number of conversation history messages to cache |
+| `input_modalities` | `List[str]` | No | `None` | Input modalities |
+| `output_modalities` | `List[str]` | No | `None` | Output modalities |
+| `params` | `Dict[str, Any]` | No | `None` | Additional model parameters |
+| `headers` | `Dict[str, str]` | No | `None` | Custom HTTP headers forwarded to the LLM provider |
+| `greeting_configs` | `Dict[str, Any]` | No | `None` | Greeting configuration |
+| `template_variables` | `Dict[str, str]` | No | `None` | Template variables for system prompt interpolation. Serialized to `llm.template_variables`, where custom tools can reference them with `{{template_variables.<name>}}` |
+| `vendor` | `str` | No | `None` | Vendor override |
+| `mcp_servers` | `List[Dict]` | No | `None` | MCP server connections |
+| `tools` | `List[Dict[str, Any]]` | No | `None` | Synchronous custom tool definitions the LLM can call. Accepts dictionaries or `LlmToolConfig` objects. Requires `with_tools(True)` |
+
+#### Anthropic
+
+```python
+from agora_agent import Anthropic
+
+llm = Anthropic(
+    api_key='your-anthropic-key',
+    url='https://api.anthropic.com/v1/messages',
+    model='claude-opus-4-8',
+    max_tokens=1024,
+    headers={'anthropic-version': '2023-06-01'},
+)
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Anthropic API key |
+| `model` | `str` | Yes | — | Model name |
+| `url` | `str` | Yes | — | Anthropic messages endpoint URL |
+| `max_tokens` | `int` | Yes | — | Maximum tokens to generate |
+| `headers` | `Dict[str, str]` | Yes | — | Request headers, including `anthropic-version` |
+| `temperature` | `float` | No | `None` | Sampling temperature (0.0–1.0) |
+| `top_p` | `float` | No | `None` | Nucleus sampling (0.0–1.0) |
+| `system_messages` | `List[Dict]` | No | `None` | Additional system messages |
+| `greeting_message` | `str` | No | `None` | Agent greeting message |
+| `failure_message` | `str` | No | `None` | Message spoken when the LLM call fails |
+| `max_history` | `int` | No | `None` | Maximum number of conversation history messages to cache |
+| `input_modalities` | `List[str]` | No | `None` | Input modalities |
+| `output_modalities` | `List[str]` | No | `None` | Output modalities |
+| `params` | `Dict[str, Any]` | No | `None` | Additional model parameters |
+| `greeting_configs` | `Dict[str, Any]` | No | `None` | Greeting configuration |
+| `template_variables` | `Dict[str, str]` | No | `None` | Template variables for system prompt interpolation. Serialized to `llm.template_variables`, where custom tools can reference them with `{{template_variables.<name>}}` |
+| `vendor` | `str` | No | `None` | Vendor override |
+| `mcp_servers` | `List[Dict]` | No | `None` | MCP server connections |
+| `tools` | `List[Dict[str, Any]]` | No | `None` | Synchronous custom tool definitions the LLM can call. Accepts dictionaries or `LlmToolConfig` objects. Requires `with_tools(True)` |
+
+#### Gemini
+
+```python
+from agora_agent import Gemini
+
+llm = Gemini(api_key='your-google-key', model='gemini-2.0-flash-exp')
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Google AI API key |
+| `model` | `str` | Yes | — | Model name |
+| `url` | `str` | No | `None` | Custom API endpoint URL |
+| `temperature` | `float` | No | `None` | Sampling temperature (0.0–2.0) |
+| `top_p` | `float` | No | `None` | Nucleus sampling (0.0–1.0) |
+| `top_k` | `int` | No | `None` | Top-k sampling |
+| `max_output_tokens` | `int` | No | `None` | Maximum output tokens |
+| `system_messages` | `List[Dict]` | No | `None` | Additional system messages |
+| `greeting_message` | `str` | No | `None` | Agent greeting message |
+| `failure_message` | `str` | No | `None` | Message spoken when the LLM call fails |
+| `max_history` | `int` | No | `None` | Maximum number of conversation history messages to cache |
+| `input_modalities` | `List[str]` | No | `None` | Input modalities |
+| `output_modalities` | `List[str]` | No | `None` | Output modalities |
+| `params` | `Dict[str, Any]` | No | `None` | Additional model parameters |
+| `headers` | `Dict[str, str]` | No | `None` | Custom HTTP headers forwarded to the LLM provider |
+| `greeting_configs` | `Dict[str, Any]` | No | `None` | Greeting configuration |
+| `template_variables` | `Dict[str, str]` | No | `None` | Template variables for system prompt interpolation. Serialized to `llm.template_variables`, where custom tools can reference them with `{{template_variables.<name>}}` |
+| `vendor` | `str` | No | `None` | Vendor override |
+| `mcp_servers` | `List[Dict]` | No | `None` | MCP server connections |
+| `tools` | `List[Dict[str, Any]]` | No | `None` | Synchronous custom tool definitions the LLM can call. Accepts dictionaries or `LlmToolConfig` objects. Requires `with_tools(True)` |
+
+#### Other LLM vendors
+The SDK also includes named helpers for the remaining Agora-supported LLM providers. These helpers choose the correct request format internally.
+
+| Class | Provider | Key parameters |
+|----|----|----|
+| `Groq` | Groq | `api_key`, `model`, `base_url` |
+| `VertexAILLM` | Google Vertex AI | `api_key`, `model`, `project_id`, `location`, `url?` |
+| `AmazonBedrock` | Amazon Bedrock | `access_key`, `secret_key`, `region`, `model`, `url?` |
+| `Dify` | Dify | `api_key`, `url`, `model`, `user?`, `conversation_id?` |
+| `CustomLLM` | OpenAI-compatible LLM | `api_key`, `base_url`, `model` |
+
+These helpers also accept common LLM fields, such as `system_messages`, `greeting_message`, `failure_message`, `max_history`, `params`, and `headers`. `Groq` and `CustomLLM` use the OpenAI request style, and `VertexAILLM` uses the Gemini request style.
+
+The LLM vendor `template_variables` parameter declares fixed string values known when you create the agent. Custom tools can reference these values in `server.url`, `server.headers`, or `server.body` with `{{template_variables.<name>}}`. The model and engine supply `{{args.<name>}}` and `{{tool_call_id}}` at runtime, so you don't need to declare them in `template_variables`.
+
+The LLM vendor `tools` parameter declares synchronous custom tools. Each tool includes a function definition and the server request configuration. The SDK enables tool calling for `tools` and `mcp_servers` only after you call `with_tools()` or `with_tools(True)`. For more information, see [Call custom tools](/en/ai/build/tools/custom-tools).
+
+### TTS vendors
+
+Use with [`with_tts()`](#with_ttsvendor). The `sample_rate` option determines avatar compatibility — see [`with_avatar()`](#with_avatarvendor).
+
+#### ElevenLabsTTS
+
+```python
+from agora_agent.agentkit.vendors import ElevenLabsTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `str` | Yes | — | ElevenLabs API key |
+| `model_id` | `str` | Yes | — | Model ID, for example `'eleven_flash_v2_5'` |
+| `voice_id` | `str` | Yes | — | Voice ID |
+| `base_url` | `str` | Yes | — | WebSocket base URL |
+| `sample_rate` | `int` | No | `None` | Sample rate in Hz: 16000, 22050, 24000, or 44100 |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+| `optimize_streaming_latency` | `int` | No | `None` | Latency optimization level (0–4) |
+| `stability` | `float` | No | `None` | Voice stability (0.0–1.0) |
+| `similarity_boost` | `float` | No | `None` | Similarity boost (0.0–1.0) |
+| `style` | `float` | No | `None` | Style exaggeration (0.0–1.0) |
+| `use_speaker_boost` | `bool` | No | `None` | Enable speaker boost |
+
+#### MicrosoftTTS
+
+```python
+from agora_agent.agentkit.vendors import MicrosoftTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `str` | Yes | — | Azure subscription key |
+| `region` | `str` | Yes | — | Azure region, for example `'eastus'` |
+| `voice_name` | `str` | Yes | — | Voice name, for example `'en-US-JennyNeural'` |
+| `sample_rate` | `int` | No | `None` | Sample rate in Hz: 8000, 16000, 24000, or 48000 |
+| `speed` | `float` | No | `None` | Speaking rate multiplier |
+| `volume` | `float` | No | `None` | Audio volume |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional Microsoft TTS parameters |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### OpenAITTS
+
+Fixed sample rate: 24000 Hz.
+
+```python
+from agora_agent.agentkit.vendors import OpenAITTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | No | `None` | OpenAI API key. Omit to use Agora-managed credentials for [supported models](/en/ai/models) |
+| `voice` | `str` | Yes | — | Voice name: `'alloy'`, `'echo'`, `'fable'`, `'onyx'`, `'nova'`, or `'shimmer'` |
+| `model` | `str` | No | `None` | Model name. Required (with `api_key` and `base_url`) for BYOK |
+| `base_url` | `str` | No | `None` | Endpoint URL. Required (with `api_key` and `model`) for BYOK |
+| `instructions` | `str` | No | `None` | Custom voice instructions |
+| `speed` | `float` | No | `None` | Speech speed multiplier |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### CartesiaTTS
+
+```python
+from agora_agent.agentkit.vendors import CartesiaTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Cartesia API key |
+| `voice_id` | `str` | Yes | — | Voice ID (serialized to the `voice` `{mode, id}` object) |
+| `model_id` | `str` | Yes | — | Model ID |
+| `base_url` | `str` | No | `None` | WebSocket URL |
+| `language` | `str` | No | `None` | Target language |
+| `sample_rate` | `int` | No | `None` | Sample rate in Hz: 8000, 16000, 22050, 24000, 44100, or 48000 |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### GoogleTTS
+
+```python
+from agora_agent.agentkit.vendors import GoogleTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `str` | Yes | — | Google Cloud service account credentials JSON string (serialized to `credentials`) |
+| `voice_name` | `str` | Yes | — | Voice name |
+| `language_code` | `str` | No | `None` | Language code, for example `'en-US'` |
+| `sample_rate_hertz` | `int` | No | `None` | Sample rate in Hz |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### AmazonTTS
+
+```python
+from agora_agent.agentkit.vendors import AmazonTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `access_key` | `str` | Yes | — | AWS access key |
+| `secret_key` | `str` | Yes | — | AWS secret key |
+| `region` | `str` | Yes | — | AWS region, for example `'us-east-1'` |
+| `voice_id` | `str` | Yes | — | Amazon Polly voice ID |
+| `engine` | `str` | Yes | — | Polly engine: `standard`, `neural`, `long-form`, or `generative` |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### HumeAITTS
+
+```python
+from agora_agent.agentkit.vendors import HumeAITTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `str` | Yes | — | Hume AI API key |
+| `voice_id` | `str` | Yes | — | Hume AI voice ID |
+| `provider` | `str` | Yes | — | Voice provider type: `HUME_AI` or `CUSTOM_VOICE` |
+| `config_id` | `str` | No | `None` | Configuration ID |
+| `base_url` | `str` | No | `None` | Base URL |
+| `speed` | `float` | No | `None` | Playback speed |
+| `trailing_silence` | `float` | No | `None` | Trailing silence in seconds |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### RimeTTS
+
+```python
+from agora_agent.agentkit.vendors import RimeTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `credential_mode` | `str` | No | `None` | `managed` or `byok` |
+| `key` | `str` | No | `None` | Rime API key |
+| `speaker` | `str` | No | `None` | Speaker ID |
+| `model_id` | `str` | No | `None` | Model ID |
+| `base_url` | `str` | No | `None` | WebSocket URL |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+In `byok` mode (default), `key`, `speaker`, and `model_id` are required. In `managed` mode, `base_url` and `model_id` are required.
+
+#### FishAudioTTS
+
+```python
+from agora_agent.agentkit.vendors import FishAudioTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `str` | Yes | — | Fish Audio API key |
+| `reference_id` | `str` | Yes | — | Reference ID |
+| `backend` | `str` | Yes | — | Backend model version, for example `'speech-1.5'` |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### MiniMaxTTS
+
+```python
+from agora_agent.agentkit.vendors import MiniMaxTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `model` | `str` | Yes | — | Model name, for example `'speech-02-turbo'` |
+| `key` | `str` | No | `None` | MiniMax API key. Required for BYOK; omit for preset-backed models |
+| `group_id` | `str` | No | `None` | MiniMax group ID. Required for BYOK |
+| `voice_id` | `str` | No | `None` | Voice style identifier (provide `voice_id` or `timber_weights`) |
+| `url` | `str` | No | `None` | WebSocket endpoint (BYOK) |
+| `speed` | `float` | No | `None` | Speaking speed |
+| `vol` | `float` | No | `None` | Volume gain |
+| `pitch` | `float` | No | `None` | Pitch adjustment |
+| `emotion` | `str` | No | `None` | Emotion style |
+| `sample_rate` | `int` | No | `None` | Output sample rate in Hz |
+| `language_boost` | `str` | No | `None` | Language boost strategy |
+| `timber_weights` | `List[Dict]` | No | `None` | Alternative timbre mix config |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional MiniMax TTS parameters |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### DeepgramTTS
+
+```python
+from agora_agent.agentkit.vendors import DeepgramTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Deepgram API key |
+| `model` | `str` | Yes | — | Model name, for example `'aura-2-thalia-en'` |
+| `base_url` | `str` | No | `None` | WebSocket endpoint. Defaults server-side to `wss://api.deepgram.com/v1/speak` |
+| `sample_rate` | `int` | No | `None` | Sample rate in Hz |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional Deepgram TTS parameters |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### MurfTTS
+
+```python
+from agora_agent.agentkit.vendors import MurfTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `str` | Yes | — | Murf API key |
+| `voice_id` | `str` | No | `None` | Voice ID, for example `'Ariana'` or `'Natalie'` |
+| `base_url` | `str` | No | `None` | WebSocket endpoint |
+| `locale` | `str` | No | `None` | Voice locale |
+| `rate` | `float` | No | `None` | Speech rate |
+| `pitch` | `float` | No | `None` | Pitch adjustment |
+| `model` | `str` | No | `None` | TTS model |
+| `sample_rate` | `int` | No | `None` | Audio sample rate |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### SarvamTTS
+
+```python
+from agora_agent.agentkit.vendors import SarvamTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `str` | Yes | — | Sarvam API key |
+| `speaker` | `str` | Yes | — | Speaker name |
+| `target_language_code` | `str` | Yes | — | Target language code |
+| `pitch` | `float` | No | `None` | Pitch adjustment |
+| `pace` | `float` | No | `None` | Speed of speech |
+| `loudness` | `float` | No | `None` | Volume level |
+| `sample_rate` | `int` | No | `None` | Audio sample rate in Hz |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### TypecastTTS
+
+```python
+from agora_agent.agentkit.vendors import TypecastTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Typecast API key |
+| `voice_id` | `str` | Yes | — | Typecast voice identifier |
+| `model` | `str` | Yes | — | Typecast TTS model name, for example `'ssfm-v30'` |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional Typecast parameters |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### GradiumTTS
+
+```python
+from agora_agent.agentkit.vendors import GradiumTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Gradium API key |
+| `url` | `str` | No | `None` | WebSocket endpoint for streaming TTS output |
+| `model_name` | `str` | No | `None` | Gradium TTS model name |
+| `voice_id` | `str` | No | `None` | Gradium voice identifier |
+| `sample_rate` | `int` | No | `None` | Audio sample rate in Hz |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional Gradium TTS parameters |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### MistralTTS
+
+```python
+from agora_agent.agentkit.vendors import MistralTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Mistral API key |
+| `model` | `str` | No | `None` | Mistral TTS model name |
+| `voice` | `str` | No | `None` | Mistral voice identifier |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional Mistral TTS parameters |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### GenericTTS
+
+Custom OpenAI-compatible HTTP TTS. `url` is required and must be an HTTP or HTTPS endpoint that includes a host. An invalid URL format, or a non-HTTP(S) scheme such as `ws` or `wss`, raises a `ValueError`. A valid URL is serialized as `tts.vendor = "generic_http"`.
+
+```python
+from agora_agent import GenericTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `url` | `str` | Yes | — | The HTTP(S) endpoint of your custom TTS service |
+| `headers` | `Dict[str, str]` | No | `None` | Custom HTTP headers to forward to the TTS service. Omitted from the request if not set |
+| `api_key` | `str` | No | `None` | The API key used to authenticate with the TTS service |
+| `model` | `str` | No | `None` | The TTS model name |
+| `voice` | `str` | No | `None` | The voice name |
+| `speed` | `float` | No | `None` | The speech rate |
+| `sample_rate` | `int` | No | `None` | The sample rate, in Hz, of the output audio. If your TTS service doesn't support multiple sample rates, make sure the returned audio's sample rate matches this value |
+| `response_format` | `str` | No | `None` | The output audio format. Conversational AI Engine currently supports `pcm` |
+| `instruction` | `str` | No | `None` | Instructions for voice style, emotion, or other playback directives |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters passed through to the TTS service. Explicit fields with the same name take precedence |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### XaiTTS
+
+```python
+from agora_agent.agentkit.vendors import XaiTTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | xAI API key |
+| `language` | `str` | Yes | — | BCP-47 language code for speech synthesis |
+| `voice_id` | `str` | No | `None` | xAI voice identifier |
+| `sample_rate` | `int` | No | `None` | Audio sample rate in Hz |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional xAI TTS parameters |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+#### SmallestAITTS
+
+```python
+from agora_agent.agentkit.vendors import SmallestAITTS
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Smallest AI API key |
+| `url` | `str` | No | `None` | Streaming TTS endpoint |
+| `model` | `str` | No | `None` | TTS model name, for example `'lightning_v3.1_pro'` |
+| `voice_id` | `str` | No | `None` | Voice identifier, for example `'hazel'` |
+| `sample_rate` | `int` | No | `None` | Output audio sample rate in Hz |
+| `speed` | `float` | No | `None` | Speech rate multiplier |
+| `language` | `str` | No | `None` | Language code for speech synthesis |
+| `number_pronunciation_language` | `str` | No | `None` | Language code used when reading numbers aloud |
+| `math_notation` | `bool` | No | `None` | Read mathematical notation as spoken mathematics |
+| `pronunciation_dicts` | `List[str]` | No | `None` | Pronunciation dictionaries to apply |
+| `session_id` | `str` | No | `None` | Caller-supplied session identifier |
+| `request_id` | `str` | No | `None` | Caller-supplied request identifier |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional Smallest AI parameters |
+| `skip_patterns` | `List[int]` | No | `None` | Skip patterns for bracketed content |
+
+Voice identifiers are model-specific, so `voice_id` must belong to the model set in `model`. For details, see [Smallest AI](/en/ai/models/tts/smallest-ai).
+
+### STT vendors
+
+Use with [`with_stt()`](#with_sttvendor).
+
+#### DeepgramSTT
+
+`api_key` is required unless `model` is an Agora-managed model (`nova-2` or `nova-3`).
+
+```python
+from agora_agent.agentkit.vendors import DeepgramSTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | No | `None` | Deepgram API key. Omit to use Agora-managed credentials for [supported models](/en/ai/models) |
+| `model` | `str` | No | `None` | Model name, for example `'nova-2'` |
+| `language` | `str` | No | `None` | Language code, for example `'en-US'` |
+| `keyterm` | `str` | No | `None` | Boost specialized terms and brands |
+| `smart_format` | `bool` | No | `None` | Enable smart formatting |
+| `punctuation` | `bool` | No | `None` | Enable punctuation |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional vendor parameters |
+
+#### SpeechmaticsSTT
+
+```python
+from agora_agent.agentkit.vendors import SpeechmaticsSTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `str` | Yes | — | Speechmatics API key. `api_key` is a deprecated alias |
+| `language` | `str` | Yes | — | Language code, for example `'en'` |
+| `model` | `str` | No | `None` | Model name |
+| `uri` | `str` | No | `None` | Speechmatics streaming WebSocket URL |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+
+#### MicrosoftSTT
+
+```python
+from agora_agent.agentkit.vendors import MicrosoftSTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `str` | Yes | — | Azure subscription key |
+| `region` | `str` | Yes | — | Azure region, for example `'eastus'` |
+| `language` | `str` | Yes | — | Language code, for example `'en-US'` |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+
+#### OpenAISTT
+
+```python
+from agora_agent.agentkit.vendors import OpenAISTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | OpenAI API key |
+| `model` | `str` | No | `None` | Transcription model. Default: `'gpt-4o-mini-transcribe'` |
+| `language` | `str` | No | `None` | Language code |
+| `prompt` | `str` | No | `None` | Prompt that guides transcription |
+| `input_audio_transcription` | `Dict[str, Any]` | No | `None` | OpenAI transcription settings (`model`, `prompt`, `language`) |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+
+The serialized configuration requires a transcription `prompt` and `language` — provide them through the `prompt` and `language` parameters or within `input_audio_transcription`. `model` defaults to `gpt-4o-mini-transcribe`.
+
+#### GoogleSTT
+
+```python
+from agora_agent.agentkit.vendors import GoogleSTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `project_id` | `str` | Yes | — | Google Cloud project ID |
+| `location` | `str` | Yes | — | Google Cloud region |
+| `adc_credentials_string` | `str` | Yes | — | Google service account credentials JSON string |
+| `language` | `str` | Yes | — | Language code, for example `'en-US'` |
+| `model` | `str` | No | `None` | Recognition model |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+
+#### AmazonSTT
+
+```python
+from agora_agent.agentkit.vendors import AmazonSTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `access_key` | `str` | Yes | — | AWS access key ID |
+| `secret_key` | `str` | Yes | — | AWS secret access key |
+| `region` | `str` | Yes | — | AWS region, for example `'us-east-1'` |
+| `language` | `str` | Yes | — | Language code |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+
+#### AssemblyAISTT
+
+```python
+from agora_agent.agentkit.vendors import AssemblyAISTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | AssemblyAI API key |
+| `language` | `str` | Yes | — | Language code |
+| `ws_url` | `str` | No | `None` | AssemblyAI streaming WebSocket URL |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+
+#### AresSTT
+
+```python
+from agora_agent.agentkit.vendors import AresSTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `keywords` | `List[str]` | No | `None` | Keywords that improve ASR accuracy |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters. Must not contain `keywords` |
+
+#### GeminiSTT
+
+```python
+from agora_agent.agentkit.vendors import GeminiSTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Google API key |
+| `model` | `str` | No | `None` | Transcription model. Defaults to `gemini-3.5-transcribe-live` |
+| `language` | `str` | No | `None` | Recognition language |
+| `language_hints` | `List[str]` | No | `None` | Candidate transcription languages. `language_codes` is a deprecated alias |
+| `custom_vocabulary` | `List[str]` | No | `None` | Words and phrases to bias recognition toward |
+| `word_timestamp` | `bool` | No | `None` | Enable word-level timestamps |
+| `mode` | `str` | No | `None` | Transcript formatting mode: `SMART` or `VERBATIM` |
+| `diarization` | `bool` | No | `None` | Enable speaker labels |
+| `sample_rate` | `int` | No | `None` | Audio sample rate in Hz. Defaults to `16000` |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+
+#### XaiSTT
+
+```python
+from agora_agent.agentkit.vendors import XaiSTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | xAI API key |
+| `base_url` | `str` | No | `None` | API endpoint URL |
+| `language` | `str` | No | `None` | Language code |
+| `sample_rate` | `int` | No | `None` | Audio sample rate in Hz |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+
+#### SarvamSTT
+
+```python
+from agora_agent.agentkit.vendors import SarvamSTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Sarvam API key |
+| `language` | `str` | Yes | — | Language code, for example `'en'` or `'hi'` |
+| `model` | `str` | No | `None` | Model name |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+
+#### SmallestAISTT
+
+```python
+from agora_agent.agentkit.vendors import SmallestAISTT
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Smallest AI API key |
+| `language` | `str` | No | `None` | Language code for speech recognition |
+| `url` | `str` | No | `None` | Streaming ASR WebSocket endpoint |
+| `sample_rate` | `int` | No | `None` | Input audio sample rate in Hz |
+| `encoding` | `str` | No | `None` | Input audio encoding, for example `'linear16'` |
+| `word_timestamps` | `bool` | No | `None` | Include word-level timestamps |
+| `sentence_timestamps` | `bool` | No | `None` | Include sentence-level timestamps |
+| `diarize` | `bool` | No | `None` | Enable speaker diarization |
+| `vad_events` | `bool` | No | `None` | Emit voice activity detection events |
+| `endpointing` | `bool` | No | `None` | Enable automatic end-of-utterance detection |
+| `eou_timeout_ms` | `int` | No | `None` | End-of-utterance timeout in milliseconds |
+| `format` | `bool` | No | `None` | Enable Smallest AI's transcript formatting |
+| `finalize_on_words` | `bool` | No | `None` | Finalize results based on word count |
+| `max_words` | `str` | No | `None` | Maximum words per result, as a string |
+| `punctuate` | `bool` | No | `None` | Add punctuation to results |
+| `capitalize` | `bool` | No | `None` | Apply capitalization to results |
+| `itn_normalize` | `bool` | No | `None` | Apply inverse text normalization |
+| `full_transcript` | `bool` | No | `None` | Return the full accumulated transcript |
+| `keywords` | `str` | No | `None` | Keyword boosts, comma-separated in `keyword:weight` format |
+| `redact_pii` | `bool` | No | `None` | Redact personally identifiable information |
+| `redact_pci` | `bool` | No | `None` | Redact payment card information |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional Smallest AI parameters |
+
+Boolean options are serialized as the strings `"true"` or `"false"` for the Smallest AI wire protocol. For details, see [Smallest AI](/en/ai/models/asr/smallest-ai).
+
+### MLLM vendors
+
+Use with [`with_mllm()`](#with_mllmvendor) for multimodal end-to-end audio processing without separate STT or TTS steps. Calling `with_mllm()` automatically enables the MLLM module (sets `mllm.enable=true`); the older `advanced_features.enable_mllm` flag is deprecated.
+
+#### OpenAIRealtime
+
+```python
+from agora_agent.agentkit.vendors import OpenAIRealtime
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | OpenAI API key |
+| `model` | `str` | No | `None` | Model name, for example `'gpt-4o-realtime-preview'` |
+| `voice` | `str` | No | `None` | Voice identifier |
+| `instructions` | `str` | No | `None` | System instructions |
+| `input_audio_transcription` | `Dict[str, Any]` | No | `None` | Audio transcription settings |
+| `url` | `str` | No | `'wss://api.openai.com/v1/realtime'` | Custom WebSocket URL |
+| `greeting_message` | `str` | No | `None` | Agent greeting message |
+| `failure_message` | `str` | No | `None` | Message played when the model call fails |
+| `input_modalities` | `List[str]` | No | `None` | Input modalities, for example `['audio']` |
+| `output_modalities` | `List[str]` | No | `None` | Output modalities, for example `['text', 'audio']` |
+| `messages` | `List[Dict]` | No | `None` | Conversation messages for short-term memory |
+| `params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+| `turn_detection` | `MllmTurnDetectionConfig` | No | `None` | MLLM turn detection configuration; overrides top-level `turn_detection` |
+
+#### AzureOpenAIRealtime
+
+```python
+from agora_agent.agentkit.vendors import AzureOpenAIRealtime
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Azure OpenAI API key |
+| `url` | `str` | Yes | — | Azure OpenAI Realtime WebSocket URL |
+| `turn_detection` | `MllmTurnDetectionConfig` | Yes | — | MLLM turn detection configuration; overrides top-level `turn_detection` |
+| `model` | `str` | No | `None` | Azure OpenAI Realtime model or deployment name |
+| `voice` | `str` | No | `None` | Voice identifier |
+| `instructions` | `str` | No | `None` | System instructions |
+| `input_audio_transcription` | `Dict[str, Any]` | No | `None` | Audio transcription settings |
+| `max_history` | `int` | No | `None` | Number of conversation history messages to cache |
+| `greeting_message` | `str` | No | `None` | Agent greeting message |
+| `failure_message` | `str` | No | `None` | Message played when the model call fails |
+| `output_modalities` | `List[str]` | No | `None` | Output modalities, for example `['text', 'audio']` |
+| `messages` | `List[Dict]` | No | `None` | Conversation messages for short-term memory |
+| `params` | `Dict[str, Any]` | No | `None` | Additional Azure OpenAI parameters |
+
+#### GeminiLive
+
+```python
+from agora_agent.agentkit.vendors import GeminiLive
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Google Gemini API key |
+| `model` | `str` | Yes | — | Gemini Live model name |
+| `thinking_level` | `str` | No | `None` | Reasoning budget (`'low'`, `'medium'`, or `'high'`), supported only by `'models/gemini-3.8-live-extended-thinking'` |
+| `url` | `str` | No | `None` | Custom WebSocket URL |
+| `instructions` | `str` | No | `None` | System instructions |
+| `voice` | `str` | No | `None` | Voice name |
+| `affective_dialog` | `bool` | No | `None` | Enable affective dialog |
+| `proactive_audio` | `bool` | No | `None` | Enable proactive audio |
+| `transcribe_agent` | `bool` | No | `None` | Transcribe agent speech |
+| `transcribe_user` | `bool` | No | `None` | Transcribe user speech |
+| `http_options` | `Dict[str, Any]` | No | `None` | HTTP options |
+| `greeting_message` | `str` | No | `None` | Agent greeting message |
+| `failure_message` | `str` | No | `None` | Message played when the model call fails |
+| `input_modalities` | `List[str]` | No | `None` | Input modalities |
+| `output_modalities` | `List[str]` | No | `None` | Output modalities |
+| `messages` | `List[Dict]` | No | `None` | Conversation messages for short-term memory |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+| `turn_detection` | `MllmTurnDetectionConfig` | No | `None` | MLLM turn detection configuration; overrides top-level `turn_detection` |
+
+#### VertexAI
+
+```python
+from agora_agent.agentkit.vendors import VertexAI
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `model` | `str` | Yes | — | Model name, for example `'gemini-2.0-flash-exp'` |
+| `project_id` | `str` | Yes | — | Google Cloud project ID |
+| `location` | `str` | Yes | — | Google Cloud location, for example `'us-central1'` |
+| `adc_credentials_string` | `str` | Yes | — | Application Default Credentials JSON string |
+| `url` | `str` | No | `None` | Custom WebSocket URL |
+| `instructions` | `str` | No | `None` | System instructions for the model |
+| `voice` | `str` | No | `None` | Voice name, for example `'Aoede'` or `'Charon'` |
+| `affective_dialog` | `bool` | No | `None` | Enable affective dialog |
+| `proactive_audio` | `bool` | No | `None` | Enable proactive audio |
+| `transcribe_agent` | `bool` | No | `None` | Transcribe agent speech |
+| `transcribe_user` | `bool` | No | `None` | Transcribe user speech |
+| `http_options` | `Dict[str, Any]` | No | `None` | HTTP options |
+| `greeting_message` | `str` | No | `None` | Agent greeting message |
+| `failure_message` | `str` | No | `None` | Message played when the model call fails |
+| `input_modalities` | `List[str]` | No | `None` | Input modalities |
+| `output_modalities` | `List[str]` | No | `None` | Output modalities |
+| `messages` | `List[Dict]` | No | `None` | Conversation messages for short-term memory |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional parameters |
+| `turn_detection` | `MllmTurnDetectionConfig` | No | `None` | MLLM turn detection configuration; overrides top-level `turn_detection` |
+
+#### XaiGrok
+
+[xAI Grok](/en/ai/models/mllm/xai) MLLM vendor (`mllm.vendor`: `"xai"`).
+
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | xAI API key |
+| `url` | `str` | No | `wss://api.x.ai/v1/realtime` | xAI Realtime WebSocket URL |
+| `voice` | `str` | No | `None` | Voice identifier, for example `eve` or `rex` |
+| `language` | `str` | No | `None` | Language code, for example `en` |
+| `sample_rate` | `int` | No | `None` | Audio sample rate in Hz |
+| `greeting_message` | `str` | No | `None` | Greeting message |
+| `failure_message` | `str` | No | `None` | Message played when the model call fails |
+| `input_modalities` | `List[str]` | No | `None` | Input modalities |
+| `output_modalities` | `List[str]` | No | `None` | Output modalities |
+| `messages` | `List[Dict]` | No | `None` | Conversation messages |
+| `params` | `Dict[str, Any]` | No | `None` | Additional xAI parameters |
+| `turn_detection` | `MllmTurnDetectionConfig` | No | `None` | Supports `agora_vad` and `server_vad` for xAI |
+
+#### OpenAIGPTLive
+
+[OpenAI GPT-Live](/en/ai/models/mllm/openai-gpt-live) MLLM vendor (`mllm.vendor`: `"openai_gpt_live"`). `with_mllm()` raises `ValueError` if `url` isn't a full `ws://` or `wss://` endpoint, `headers` isn't a JSON object string, `delegation` isn't `client` or `responses`, or `session_params` overrides a protected field.
+
+:::caution[Early access]
+OpenAI GPT-Live is available in early access and isn't intended for production traffic. The SDK automatically routes sessions that use this vendor to the preview endpoint. GPT-Live doesn't support turn detection or input audio transcription.
+:::
+
+```python
+from agora_agent import OpenAIGPTLive
+
+mllm = OpenAIGPTLive(
+    api_key='your-openai-key',
+    greeting="Hello! I'm GPT-live. How can I help you today?",
+    model='gpt-live-1',
+    voice='marin',
+    prompt='your-system-prompt',
+)
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | OpenAI API key |
+| `model` | `str` | No | `None` | Model name. Defaults to `gpt-live-1` |
+| `voice` | `str` | No | `None` | Output voice. Provider default: `marin` |
+| `prompt` | `str` | No | `None` | Session instructions that define the assistant's behavior |
+| `greeting` | `str` | No | `None` | Greeting the agent speaks when a user joins. Serialized as `greeting_message` |
+| `failure_message` | `str` | No | `None` | Message played when the model call fails |
+| `url` | `str` | No | `None` | Full `ws://` or `wss://` endpoint. Defaults to `wss://api.openai.com/v1/live/sessions` |
+| `base_url` | `str` | No | `None` | Host used when `url` is omitted. Defaults to `wss://api.openai.com` |
+| `path` | `str` | No | `None` | WebSocket path used when `url` is omitted. Defaults to `/v1/live/sessions` |
+| `input_modalities` | `List[str]` | No | `None` | Input modalities |
+| `output_modalities` | `List[str]` | No | `None` | Output modalities |
+| `messages` | `List[Dict[str, Any]]` | No | `None` | Conversation history passed to the model as context |
+| `mcp_servers` | `List[Dict[str, Any]]` | No | `None` | MCP servers whose tools GPT-Live can call. Requires `with_tools(True)` |
+| `tool_enabled` | `bool` | No | `None` | Advertise the agent's tools to GPT-Live. Provider default: `false` |
+| `delegation` | `str` | No | `None` | Tool delegation mode: `client` or `responses`. Provider default: `responses`. Can't be changed during the session |
+| `responses_model` | `str` | No | `None` | Model used for delegated tool calls |
+| `interrupt_on_user_turn` | `bool` | No | `None` | Interrupt playback when the user speaks. Provider default: `false` |
+| `output_idle_end_ms` | `int` | No | `None` | Agent silence boundary in milliseconds. Provider default: `600`. `0` disables inference |
+| `input_idle_end_ms` | `int` | No | `None` | User silence boundary in milliseconds. Provider default: `1500` |
+| `output_silence_peak` | `int` | No | `None` | Speech amplitude threshold on the 16-bit scale. Provider default: `50` |
+| `output_sample_rate` | `int` | No | `None` | Output PCM sample rate in Hz. Provider default: `24000` |
+| `output_buffer_ms` | `int` | No | `None` | Initial audio cushion in milliseconds. Provider default: `0`. A negative value disables pacing |
+| `input_batch_ms` | `int` | No | `None` | Microphone audio batching interval in milliseconds |
+| `alpha_selector` | `str` | No | `None` | OpenAI-Alpha selector for preview contracts. Omitted when not set |
+| `headers` | `str` | No | `None` | Extra provider request headers, as a JSON object string |
+| `session_params` | `Dict[str, Any]` | No | `None` | Additional session fields. Can't override `model`, `delegation`, `audio`, `instructions`, or `input` |
+| `params` | `Dict[str, Any]` | No | `None` | Additional provider parameters. Explicit options take precedence |
+| `instructions` | `str` | No | `None` | Deprecated. Use `prompt` instead |
+
+`input_audio_transcription` and `turn_detection` are deprecated and accepted only for compatibility. GPT-Live doesn't support them: setting `input_audio_transcription` raises `ValueError`, and the SDK ignores `turn_detection` and logs a warning.
+
+### Avatar vendors
+
+Use with [`with_avatar()`](#with_avatarvendor). Some avatar vendors require a specific TTS sample rate, enforced at runtime.
+
+#### HeyGenAvatar
+
+**Deprecated — renamed to [`LiveAvatarAvatar`](#liveavataravatar).** `HeyGenAvatar` still works (serializes `vendor: "heygen"`) but emits a deprecation warning. Use `LiveAvatarAvatar` for new code.
+
+Requires TTS at **24,000 Hz**.
+
+```python
+from agora_agent.agentkit.vendors import HeyGenAvatar
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | HeyGen API key |
+| `quality` | `str` | Yes | — | Video quality: `'low'`, `'medium'`, or `'high'` |
+| `agora_uid` | `str` | Yes | — | Agora UID for the avatar video stream |
+| `agora_token` | `str` | No | `None` | Avatar token. When omitted, `AgentSession.start()` generates one for `agora_uid` using the same token path as the agent. |
+| `avatar_id` | `str` | No | `None` | HeyGen avatar ID |
+| `enable` | `bool` | No | `True` | Enable or disable the avatar |
+| `disable_idle_timeout` | `bool` | No | `None` | Disable the idle timeout |
+| `activity_idle_timeout` | `int` | No | `None` | Idle timeout in seconds. Default: 120 |
+
+#### AkoolAvatar
+
+Requires TTS at **16,000 Hz**.
+
+```python
+from agora_agent.agentkit.vendors import AkoolAvatar
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Akool API key |
+| `avatar_id` | `str` | No | `None` | Avatar ID |
+| `enable` | `bool` | No | `True` | Enable or disable the avatar |
+
+#### LiveAvatarAvatar
+
+Required TTS sample rate: **24000 Hz**
+
+Same options as [`HeyGenAvatar`](#heygenavatar), but serializes `vendor: "liveavatar"`. `agora_token` is optional and generated by `AgentSession.start()` when omitted.
+
+#### AnamAvatar
+
+```python
+from agora_agent.agentkit.vendors import AnamAvatar
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Anam API key |
+| `avatar_id` | `str` | Yes | — | Anam avatar ID |
+| `enable` | `bool` | No | `True` | Enable or disable the avatar |
+
+#### GenericAvatar
+
+```python
+from agora_agent.agentkit.vendors import GenericAvatar
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Generic avatar provider API key |
+| `agora_uid` | `str` | Yes | — | Avatar RTC UID. Must differ from the agent UID. |
+| `api_base_url` | `str` | Yes | — | Avatar provider API base URL |
+| `avatar_id` | `str` | Yes | — | Avatar ID |
+| `agora_token` | `str` | No | `None` | Optional avatar token. Generated by `AgentSession.start()` when omitted. |
+| `agora_appid` | `str` | No | `None` | Optional; filled from the session App ID when omitted. |
+| `agora_channel` | `str` | No | `None` | Optional; filled from the session channel when omitted. |
+| `enable` | `bool` | No | `True` | Enable or disable the avatar |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional vendor parameters. Explicit parameters take precedence over matching keys. |
+
+Avatar tokens are separate from the agent join token but generated with the same `generate_convo_ai_token` path, using the avatar's `agora_uid` as `uid`.
+
+#### Tavus
+
+```python
+from agora_agent.agentkit.vendors import Tavus
+```
+
+Serializes `vendor: "generic"`. For the endpoint and a full example, see [Tavus](/en/ai/models/avatar/tavus).
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Tavus API key |
+| `agora_uid` | `str` | Yes | — | Avatar RTC UID. Must differ from the agent UID. |
+| `api_base_url` | `str` | Yes | — | Tavus API base URL |
+| `avatar_id` | `str` | Yes | — | Tavus avatar ID |
+| `agora_token` | `str` | No | `None` | Optional avatar token. Generated by `AgentSession.start()` when omitted. |
+| `agora_appid` | `str` | No | `None` | Optional; filled from the session App ID when omitted. |
+| `agora_channel` | `str` | No | `None` | Optional; filled from the session channel when omitted. |
+| `enable` | `bool` | No | `True` | Enable or disable the avatar |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional vendor parameters. Explicit parameters take precedence over matching keys. |
+
+#### Protoface
+
+```python
+from agora_agent.agentkit.vendors import Protoface
+```
+
+Serializes `vendor: "generic"`. For the endpoint and a full example, see [Protoface](/en/ai/models/avatar/protoface).
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | Protoface API key |
+| `agora_uid` | `str` | Yes | — | Avatar RTC UID. Must differ from the agent UID. |
+| `api_base_url` | `str` | Yes | — | Protoface API base URL |
+| `avatar_id` | `str` | Yes | — | Protoface avatar ID |
+| `agora_token` | `str` | No | `None` | Optional avatar token. Generated by `AgentSession.start()` when omitted. |
+| `agora_appid` | `str` | No | `None` | Optional; filled from the session App ID when omitted. |
+| `agora_channel` | `str` | No | `None` | Optional; filled from the session channel when omitted. |
+| `enable` | `bool` | No | `True` | Enable or disable the avatar |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional vendor parameters. Explicit parameters take precedence over matching keys. |
+
+#### LemonSlice
+
+```python
+from agora_agent.agentkit.vendors import LemonSlice
+```
+
+Serializes `vendor: "generic"`. For the endpoint and a full example, see [LemonSlice](/en/ai/models/avatar/lemonslice).
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `api_key` | `str` | Yes | — | LemonSlice API key |
+| `agora_uid` | `str` | Yes | — | Avatar RTC UID. Must differ from the agent UID. |
+| `api_base_url` | `str` | Yes | — | LemonSlice API base URL |
+| `avatar_id` | `str` | Yes | — | Always `lemonslice` |
+| `agora_token` | `str` | No | `None` | Optional avatar token. Generated by `AgentSession.start()` when omitted. |
+| `agora_appid` | `str` | No | `None` | Optional; filled from the session App ID when omitted. |
+| `agora_channel` | `str` | No | `None` | Optional; filled from the session channel when omitted. |
+| `enable` | `bool` | No | `True` | Enable or disable the avatar |
+| `additional_params` | `Dict[str, Any]` | No | `None` | Additional vendor parameters. Explicit parameters take precedence over matching keys. |
+
+## Token utilities
+
+Helper functions for generating and managing tokens. Use these when you need control over token lifetime or when generating tokens outside of a session.
+
+```python
+from agora_agent.agentkit.token import generate_convo_ai_token, generate_rtc_token
+from agora_agent.agentkit import expires_in_hours, expires_in_minutes
+```
+
+### `generate_convo_ai_token()`
+
+Generates a Conversational AI token combining RTC and RTM privileges. This is the same token the SDK generates automatically in app-credentials mode. Use this when passing a pre-built token to [`create_session()`](#create_session).
+
+```python
+generate_convo_ai_token(
+    app_id: str,
+    app_certificate: str,
+    channel_name: str,
+    uid: int,
+    token_expire: int = 86400,
+    privilege_expire: int = 0,
+) -> str
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `app_id` | `str` | Yes | — | Agora App ID |
+| `app_certificate` | `str` | Yes | — | Agora App Certificate |
+| `channel_name` | `str` | Yes | — | The channel the token grants access to |
+| `uid` | `int` | Yes | — | Numeric RTC UID the token is issued for |
+| `token_expire` | `int` | No | `86400` | Token lifetime in seconds. Valid range: 1–86400 |
+| `privilege_expire` | `int` | No | `0` | Seconds until privileges expire. `0` means same as `token_expire` |
+
+**Returns:** `str` — the generated token.
+
+**Raises:** `ValueError` if `app_id` or `app_certificate` isn't exactly 32 characters. `TypeError` if `uid` isn't an `int`.
+
+```python
+from agora_agent.agentkit.token import generate_convo_ai_token
+from agora_agent.agentkit import expires_in_hours
+
+token = generate_convo_ai_token(
+    app_id='your-app-id',
+    app_certificate='your-app-certificate',
+    channel_name='support-room-123',
+    uid=1,
+    token_expire=expires_in_hours(12),
+)
+```
+
+### `generate_rtc_token()`
+
+Generates an RTC-only token for channel join. Use `generate_convo_ai_token()` instead for most Conversational AI use cases.
+
+```python
+generate_rtc_token(
+    app_id: str,
+    app_certificate: str,
+    channel: str,
+    uid: int,
+    role: int = 1,
+    expiry_seconds: int = 86400,
+) -> str
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `app_id` | `str` | Yes | — | Agora App ID |
+| `app_certificate` | `str` | Yes | — | Agora App Certificate |
+| `channel` | `str` | Yes | — | Channel name |
+| `uid` | `int` | Yes | — | User ID. Use `0` for any user |
+| `role` | `int` | No | `1` | RTC role: `1` for publisher, `2` for subscriber |
+| `expiry_seconds` | `int` | No | `86400` | Token lifetime in seconds. Valid range: 1–86400 |
+
+**Returns:** `str` — the generated token.
+
+**Raises:** `ValueError` if `app_id` or `app_certificate` isn't exactly 32 characters.
+
+### `expires_in_hours()` / `expires_in_minutes()`
+
+Helper functions for specifying token lifetimes. Use with [`create_session()`](#create_session) or token generation functions. Values are validated and capped at the Agora maximum of 86400 seconds (24 hours).
+
+```python
+expires_in_hours(hours: float) -> int
+expires_in_minutes(minutes: float) -> int
+```
+
+| Function | Returns | Behavior |
+|---|---|---|
+| `expires_in_hours(n)` | `int` — seconds | Raises `ValueError` if `n` ≤ 0. Warns and caps at 86400 if result exceeds 24 h |
+| `expires_in_minutes(n)` | `int` — seconds | Raises `ValueError` if `n` ≤ 0. Warns and caps at 86400 if result exceeds 24 h |
+
+```python
+from agora_agent.agentkit import expires_in_hours, expires_in_minutes
+
+session = agent.create_session(
+    channel='support-room-123',
+    agent_uid='1',
+    remote_uids=['100'],
+    expires_in=expires_in_hours(12),
+)
+```
+
+## Types and enums
+
+Shared types and enums used across `Agora`, `AsyncAgora`, `Agent`, `AgentSession`, and vendor classes.
+
+### `Area`
+
+Region used for API routing. Pass to `Agora` or `AsyncAgora` via the `area` parameter.
+
+```python
+from agora_agent import Area
+```
+
+| Value | Region |
+|---|---|
+| `Area.US` | United States |
+| `Area.EU` | Europe |
+| `Area.AP` | Asia-Pacific |
+| `Area.CN` | China mainland |
+
+### Session events
+
+Event names for `session.on()` and `session.off()` are plain strings: `'started'`, `'stopped'`, and `'error'`.
+
+| Value | Payload | Description |
+|---|---|---|
+| `'started'` | `dict` with `agent_id: str` | Agent successfully joined the channel |
+| `'stopped'` | `dict` with `agent_id: str` | Agent left the channel |
+| `'error'` | `Exception` | An unrecoverable error occurred |
+
+### `SpeakPriority`
+
+Controls how the agent handles a [`say()`](#saytext-prioritynone-interruptablenone) call relative to its current activity. Pass as a string to `session.say()`.
+
+| Value | Description |
+|---|---|
+| `'INTERRUPT'` | Agent immediately stops current speech and delivers the message |
+| `'APPEND'` | Message is queued and delivered after current speech ends |
+| `'IGNORE'` | Message is discarded if the agent is currently speaking |
+
+### `ApiError`
+
+Raised when the API returns a 4xx or 5xx response. Catch this to inspect the status code and response body.
+
+```python
+from agora_agent.core.api_error import ApiError
+
+try:
+    agent_id = session.start()
+except ApiError as e:
+    print(e.status_code)
+    print(e.body)
+```
+
+| Property | Type | Description |
+|---|---|---|
+| `status_code` | `Optional[int]` | HTTP status code returned by the API |
+| `headers` | `Optional[Dict[str, str]]` | Response headers |
+| `body` | `Any` | Raw response body from the API |
+
+## Sync vs. Async
+
+The Python SDK provides two parallel client and session hierarchies — synchronous and asynchronous. Choose based on your application's runtime model.
+
+| | Sync | Async |
+|---|---|---|
+| Client | `Agora` | `AsyncAgora` |
+| Session | `AgentSession` | `AsyncAgentSession` |
+| HTTP backend | `httpx.Client` | `httpx.AsyncClient` |
+
+**Use `Agora` (sync) when:**
+- You are writing scripts, CLI tools, or batch jobs
+- Your web framework is synchronous, for example Flask or Django without async views
+- You want the simplest possible code
+
+**Use `AsyncAgora` (async) when:**
+- Your application uses `asyncio`, for example FastAPI, Starlette, or aiohttp
+- You need to manage multiple concurrent agent sessions efficiently
+- You want non-blocking I/O
+
+The `Agent` builder class is the same for both. It doesn't make HTTP calls, so it has no async variant. Construct `Agent(client=AsyncAgora(...))` and call `agent.create_async_session()` to receive an `AsyncAgentSession`.

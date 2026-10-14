@@ -1,0 +1,458 @@
+name: Vercel Deploy
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "content/**"
+      - "public/**"
+      - "package.json"
+      - "bun.lock"
+      - "source.config.ts"
+      - "tsconfig.json"
+      - "vite.config.ts"
+      - "vercel.json"
+      - "vercel.base.json"
+      - "vercel-legacy-redirects.json"
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  push:
+    branches:
+      - "**"
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "content/**"
+      - "public/**"
+      - "package.json"
+      - "bun.lock"
+      - "source.config.ts"
+      - "tsconfig.json"
+      - "vite.config.ts"
+      - "vercel.json"
+      - "vercel.base.json"
+      - "vercel-legacy-redirects.json"
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: Deployment target
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+      pr_number:
+        description: Optional PR number to comment on for preview deploys
+        required: false
+        type: string
+      release_sha:
+        description: Release commit SHA for production deploys triggered by Promote Production
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: vercel-deploy-${{ github.event.pull_request.number || github.ref_name }}-${{ github.event_name == 'push' && 'production' || inputs.deploy_target || 'preview' }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    name: Deploy Preview to Vercel
+    if: |
+      github.repository == 'AgoraIO/docs-portal' &&
+      (
+        github.event_name == 'pull_request' ||
+        (github.event_name == 'push' && github.ref_name != 'release/prod') ||
+        (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'preview')
+      )
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Resolve preview context
+        id: preview-context
+        uses: actions/github-script@v7
+        env:
+          MANUAL_PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            if (context.eventName === 'pull_request') {
+              const sameRepo = context.payload.pull_request?.head?.repo?.full_name === context.payload.repository?.full_name;
+              core.setOutput('should_deploy', sameRepo ? 'true' : 'false');
+              core.setOutput('pr_number', sameRepo ? String(context.payload.pull_request.number) : '');
+              core.setOutput('reason', sameRepo ? 'same-repo pull request' : 'forked pull request');
+              return;
+            }
+
+            if (context.eventName === 'workflow_dispatch') {
+              const manualInput = process.env.MANUAL_PR_NUMBER?.trim() ?? '';
+              if (manualInput && manualInput !== 'null' && manualInput !== '') {
+                if (!/^[1-9]\d*$/.test(manualInput)) {
+                  core.setFailed('pr_number must be a positive integer.');
+                  return;
+                }
+                core.setOutput('should_deploy', 'true');
+                core.setOutput('pr_number', manualInput);
+                core.setOutput('reason', 'manual preview deploy');
+                return;
+              }
+            }
+
+            const branch = context.ref.replace('refs/heads/', '');
+            if (context.eventName === 'push' && branch === 'main') {
+              core.setOutput('should_deploy', 'true');
+              core.setOutput('pr_number', '');
+              core.setOutput('reason', 'main branch push');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const response = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              head: `${owner}:${branch}`,
+              per_page: 1,
+            });
+
+            if (response.data.length > 0) {
+              core.setOutput('should_deploy', 'true');
+              core.setOutput('pr_number', String(response.data[0].number));
+              core.setOutput('reason', 'branch push with open pull request');
+              return;
+            }
+
+            core.setOutput('should_deploy', context.eventName === 'workflow_dispatch' ? 'true' : 'false');
+            core.setOutput('pr_number', '');
+            core.setOutput('reason', context.eventName === 'workflow_dispatch' ? 'manual preview deploy without PR' : 'branch push without open pull request');
+
+      - name: Skip unsupported preview trigger
+        if: steps.preview-context.outputs.should_deploy != 'true'
+        run: |
+          echo "Skipping preview deploy: ${{ steps.preview-context.outputs.reason }}"
+          {
+            echo "## Vercel Preview"
+            echo
+            echo "Skipped: ${{ steps.preview-context.outputs.reason }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Checkout
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Vercel CLI
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        run: npm install --global vercel@latest
+
+      - name: Install dependencies
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Pull Vercel preview environment
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        run: vercel pull --yes --environment=preview --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Build with Vercel
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        env:
+          VITE_DOCS_REGION: global
+          VITE_DEPLOY_ENVIRONMENT: preview
+          VITE_DEPLOY_VERSION: ${{ github.event.pull_request.head.sha || github.sha }}
+          VITE_ALGOLIA_APP_ID: ${{ secrets.VITE_ALGOLIA_APP_ID }}
+          VITE_ALGOLIA_SEARCH_API_KEY: ${{ secrets.VITE_ALGOLIA_SEARCH_API_KEY }}
+          VITE_SEARCH_RANKING_V2: 'true'
+          VITE_GTM_ID: ${{ secrets.VITE_GTM_ID }}
+          VITE_POSTHOG_HOST: ${{ secrets.VITE_POSTHOG_HOST }}
+          VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
+          VERCEL_GIT_PROVIDER: github
+          VERCEL_GIT_REPO_OWNER: ${{ github.repository_owner }}
+          VERCEL_GIT_REPO_SLUG: ${{ github.event.repository.name }}
+          VERCEL_GIT_COMMIT_REF: ${{ github.head_ref || github.ref_name }}
+          VERCEL_GIT_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: vercel build --yes --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Verify Vercel output
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        run: |
+          test -f .vercel/output/config.json
+          test -d .vercel/output/static
+          test -f .vercel/output/static/index.html
+          test ! -d .vercel/output/functions
+
+      - name: Deploy prebuilt output
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        id: vercel-deploy
+        run: |
+          url="$(vercel deploy \
+            --prebuilt \
+            --archive=tgz \
+            --yes \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --meta githubCommitOrg="${{ github.repository_owner }}" \
+            --meta githubCommitRepo="${{ github.event.repository.name }}" \
+            --meta githubCommitRef="${{ github.head_ref || github.ref_name }}" \
+            --meta githubCommitSha="${{ github.event.pull_request.head.sha || github.sha }}")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Alias main preview URL
+        if: steps.preview-context.outputs.should_deploy == 'true' && github.event_name == 'push' && github.ref_name == 'main'
+        env:
+          DEPLOY_URL: ${{ steps.vercel-deploy.outputs.url }}
+          MAIN_PREVIEW_ALIAS: ${{ vars.VERCEL_MAIN_PREVIEW_ALIAS || 'docs-portal-mocha.vercel.app' }}
+        run: vercel alias set "$DEPLOY_URL" "$MAIN_PREVIEW_ALIAS" --token="${{ secrets.VERCEL_TOKEN }}" --team="$VERCEL_ORG_ID"
+
+      - name: Alias PR preview URL
+        if: steps.preview-context.outputs.should_deploy == 'true' && steps.preview-context.outputs.pr_number != ''
+        env:
+          DEPLOY_URL: ${{ steps.vercel-deploy.outputs.url }}
+          PR_PREVIEW_ALIAS: docs-portal-pr-${{ steps.preview-context.outputs.pr_number }}.vercel.app
+        run: vercel alias set "$DEPLOY_URL" "$PR_PREVIEW_ALIAS" --token="${{ secrets.VERCEL_TOKEN }}" --team="$VERCEL_ORG_ID"
+
+      - name: Write workflow summary
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        env:
+          DEPLOY_URL: ${{ steps.vercel-deploy.outputs.url }}
+          MAIN_PREVIEW_ALIAS: ${{ vars.VERCEL_MAIN_PREVIEW_ALIAS || 'docs-portal-mocha.vercel.app' }}
+          PR_PREVIEW_ALIAS: docs-portal-pr-${{ steps.preview-context.outputs.pr_number }}.vercel.app
+        run: |
+          {
+            echo "## Vercel Preview"
+            echo
+            echo "Preview URL: ${DEPLOY_URL}"
+            if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_name }}" == "main" ]]; then
+              echo "Main preview alias: https://${MAIN_PREVIEW_ALIAS}"
+            fi
+            if [[ -n "${{ steps.preview-context.outputs.pr_number }}" ]]; then
+              echo "Stable PR preview alias: https://${PR_PREVIEW_ALIAS}"
+            fi
+            echo
+            echo "Trigger: ${{ steps.preview-context.outputs.reason }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment preview URL
+        if: steps.preview-context.outputs.should_deploy == 'true' && steps.preview-context.outputs.pr_number != ''
+        uses: actions/github-script@v7
+        env:
+          DEPLOY_URL: ${{ steps.vercel-deploy.outputs.url }}
+          PR_NUMBER: ${{ steps.preview-context.outputs.pr_number }}
+          PR_PREVIEW_ALIAS: docs-portal-pr-${{ steps.preview-context.outputs.pr_number }}.vercel.app
+        with:
+          script: |
+            const body = [
+              '## Vercel Preview',
+              '',
+              `Preview URL: ${process.env.DEPLOY_URL}`,
+              `Stable review URL: https://${process.env.PR_PREVIEW_ALIAS}`,
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = Number(process.env.PR_NUMBER);
+            const marker = '## Vercel Preview';
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body,
+            });
+
+      - name: Replay Global search golden queries
+        if: steps.preview-context.outputs.should_deploy == 'true'
+        continue-on-error: true
+        env:
+          VITE_ALGOLIA_APP_ID: ${{ secrets.VITE_ALGOLIA_APP_ID }}
+          VITE_ALGOLIA_SEARCH_API_KEY: ${{ secrets.VITE_ALGOLIA_SEARCH_API_KEY }}
+          VITE_ALGOLIA_INDEX_NAME: ${{ vars.ALGOLIA_INDEX_NAME }}
+          VITE_SEARCH_RANKING_V2: 'true'
+        run: bun run search:replay -- --gate=preview-blockers --out=global-search-replay-preview.json
+
+      - name: Upload Global search replay evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: global-search-replay-preview
+          path: global-search-replay-preview.json
+          if-no-files-found: warn
+
+  deploy-production:
+    name: Deploy Production to Vercel
+    if: |
+      github.repository == 'AgoraIO/docs-portal' &&
+      (
+        (github.event_name == 'push' && github.ref_name == 'release/prod') ||
+        (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'production')
+      )
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'release/prod' || github.ref }}
+
+      - name: Verify release ref
+        id: release-ref
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$RELEASE_SHA" ]]; then
+            echo "release_sha is required for manual production dispatches."
+            exit 1
+          fi
+
+          current_sha="$(git rev-parse HEAD)"
+          if [[ "$current_sha" != "$RELEASE_SHA" ]]; then
+            echo "release_sha does not match release/prod."
+            echo "release_sha: $RELEASE_SHA"
+            echo "release/prod: $current_sha"
+            exit 1
+          fi
+
+          echo "verified=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Pull Vercel production environment
+        run: vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Build with Vercel
+        env:
+          VITE_DOCS_REGION: global
+          VITE_DEPLOY_ENVIRONMENT: production
+          VITE_DEPLOY_VERSION: ${{ inputs.release_sha || github.sha }}
+          VITE_ALGOLIA_APP_ID: ${{ secrets.VITE_ALGOLIA_APP_ID }}
+          VITE_ALGOLIA_SEARCH_API_KEY: ${{ secrets.VITE_ALGOLIA_SEARCH_API_KEY }}
+          VITE_SEARCH_RANKING_V2: 'true'
+          VITE_GTM_ID: ${{ secrets.VITE_GTM_ID }}
+          VITE_POSTHOG_HOST: ${{ secrets.VITE_POSTHOG_HOST }}
+          VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
+          VERCEL_GIT_PROVIDER: github
+          VERCEL_GIT_REPO_OWNER: ${{ github.repository_owner }}
+          VERCEL_GIT_REPO_SLUG: ${{ github.event.repository.name }}
+          VERCEL_GIT_COMMIT_REF: release/prod
+          VERCEL_GIT_COMMIT_SHA: ${{ inputs.release_sha || github.sha }}
+        run: vercel build --prod --yes --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Sync Algolia search index
+        if: |
+          (github.event_name == 'push' && github.ref_name == 'release/prod') ||
+          (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'production' && steps.release-ref.outputs.verified == 'true')
+        env:
+          VITE_DOCS_REGION: global
+          VITE_ALGOLIA_APP_ID: ${{ secrets.VITE_ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_API_KEY: ${{ secrets.ALGOLIA_ADMIN_API_KEY }}
+          ALGOLIA_INDEX_NAME: ${{ vars.ALGOLIA_INDEX_NAME }}
+        run: bun run search:sync
+
+      - name: Replay Global search golden queries
+        continue-on-error: true
+        env:
+          VITE_ALGOLIA_APP_ID: ${{ secrets.VITE_ALGOLIA_APP_ID }}
+          VITE_ALGOLIA_SEARCH_API_KEY: ${{ secrets.VITE_ALGOLIA_SEARCH_API_KEY }}
+          VITE_ALGOLIA_INDEX_NAME: ${{ vars.ALGOLIA_INDEX_NAME }}
+          VITE_SEARCH_RANKING_V2: 'true'
+        run: bun run search:replay -- --out=global-search-replay.json
+
+      - name: Upload Global search replay evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: global-search-replay
+          path: global-search-replay.json
+          if-no-files-found: warn
+
+      - name: Verify Vercel output
+        run: |
+          test -f .vercel/output/config.json
+          test -d .vercel/output/static
+          test -f .vercel/output/static/index.html
+          test ! -d .vercel/output/functions
+
+      - name: Deploy prebuilt output
+        id: vercel-deploy
+        run: |
+          url="$(vercel deploy \
+            --prebuilt \
+            --archive=tgz \
+            --prod \
+            --yes \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --meta githubCommitOrg="${{ github.repository_owner }}" \
+            --meta githubCommitRepo="${{ github.event.repository.name }}" \
+            --meta githubCommitRef="release/prod" \
+            --meta githubCommitSha="${{ inputs.release_sha || github.sha }}")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Write workflow summary
+        env:
+          DEPLOY_URL: ${{ steps.vercel-deploy.outputs.url }}
+        run: |
+          {
+            echo "## Vercel Production"
+            echo
+            echo "Production URL: ${DEPLOY_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,90 @@
+---
+title: "SDK quickstart"
+description: "Run the IoT SDK example project to stream audio and video in minutes."
+---
+
+Agora provides two sample projects that demonstrate core IoT SDK functionality:
+
+- `hello_rtsa`: sends and receives media streams
+- `hello_rtm`: sends and receives signaling messages
+
+The samples are bundled in the `example` directory of the IoT SDK package.
+
+This page shows you how to compile and run the `hello_rtsa` sample project to start streaming audio and video.
+
+:::info
+IoT SDK for Android no longer receives version updates. For Android-based devices, integrate the [RTC Java SDK](/en/api-reference/sdks?product=video&platform=android) together with the [Signaling Java SDK](/en/api-reference/sdks?product=signaling&platform=android) instead of IoT SDK.
+:::
+
+## Prerequisites
+
+To follow this procedure you need:
+
+* A computer or an embedded device. This page uses a computer running Ubuntu 18.04 as an example. For the full list of supported operating systems and toolchains, see [Supported platforms](reference/supported-platforms.mdx).
+* An Agora [account](/en/introduction/account) and [project](/en/introduction/account).
+* A [temporary RTC token](/en/introduction/account#generate-temporary-tokens) generated for your project.
+
+:::info
+A testing license is bundled with the sample project. It is valid for 90 days and supports up to 10 concurrent connections. To use IoT SDK in production, apply for and activate a commercial [license](build/authenticate-and-secure-channels/license.mdx).
+:::
+
+## Get the SDK
+
+Agora publishes a separate SDK package for each combination of processor architecture, operating system, C library, and float ABI. The package name encodes these values, for example `armv7a-linux-uclibceabihf` is an ARMv7 package for Linux, built with the uClibc C library and hard-float compilation.
+
+[Download](/en/api-reference/sdks?platform=linux) the package that matches your development machine's architecture, C library, and float ABI. For example, to download and extract the `x86_64-linux-gnu` package from the terminal:
+
+```bash
+wget https://download.agora.io/rtsasdk/release/Agora-RTSALite-<build-id>-x86_64-linux-gnu-v<version>.tgz
+tar xvf Agora-RTSALite-<build-id>-x86_64-linux-gnu-v<version>.tgz
+```
+
+Replace `<build-id>` and `<version>` with the values from your downloaded file name. See [Resources](reference/resources.mdx) for the naming convention used across architectures.
+
+## Compile the example project
+
+In the terminal, compile the example project for your architecture:
+
+```bash
+cd agora_rtsa_sdk/example
+./build-x86_64.sh
+```
+
+This produces two executables in `out/x86_64`: `hello_rtsa`, for streaming audio and video, and `hello_rtm`, for signaling.
+
+:::info
+To run `hello_rtsa` on an ARM Linux device, first see the porting guide (`PORTING.md`) included in the SDK package.
+:::
+
+## Run the media streaming example
+
+Navigate to the output directory and launch `hello_rtsa` with your App ID, a channel name, and your temporary token:
+
+```bash
+cd out/x86_64
+./hello_rtsa -i <your-app-id> -c demo_channel --token <your-rtc-token>
+```
+
+The app joins the channel `demo_channel` and streams the sample media files bundled with the SDK (`send_video.h264` for H.264 video and `send_audio_16k_1ch.pcm` for PCM audio), using default parameters.
+
+### Verify the result
+
+1. In your browser, navigate to the [Agora web demo](https://webdemo-global.agora.io/example/quickStart/videoAndVoiceCalling/index.html) and initialize it with your App ID.
+
+2. Enter the same channel name (`demo_channel`), a user ID, and a token for that channel, then click **Join**.
+
+3. You see and hear the audio and video streamed from your running `hello_rtsa` instance.
+
+## Run the signaling example
+
+`hello_rtm` demonstrates sending and receiving signaling messages between two peers. Open two terminals and launch one instance in each, using a distinct RTM token and user ID for each side:
+
+```bash
+./hello_rtm --appId <your-app-id> --rtmUid user1 --peerUid user2 --token <rtm-token-for-user1>
+```
+
+```bash
+./hello_rtm --appId <your-app-id> --rtmUid user2 --peerUid user1 --token <rtm-token-for-user2>
+```
+
+You see each terminal send and receive messages from the other peer.
