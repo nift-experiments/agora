@@ -13,15 +13,20 @@ source=source.replace("!await Bun.file(join(output,page.url.slice(1),'index.html
 const renderer=new Bun.Transpiler({loader:'ts',target:'node'}).transformSync(source);
 await writeChanged(join(root,'.generated/render-routes.mjs'),renderer);
 const nodeArgs=['node','--max-old-space-size=384',join(root,'.generated/render-routes.mjs')];
+// This is production SSR; Node otherwise selects React's development runtime.
+const rendererEnv={...process.env,NODE_ENV:'production'};
 const requested=process.argv.slice(2);
 if(requested.some(arg=>arg.startsWith('/'))){
- const worker=Bun.spawn([...nodeArgs,...requested],{cwd:root,env:process.env,stdout:'inherit',stderr:'inherit'});
+ const worker=Bun.spawn([...nodeArgs,...requested],{cwd:root,env:rendererEnv,stdout:'inherit',stderr:'inherit'});
  process.exit(await worker.exited);
 }
-const planner=Bun.spawn([...nodeArgs,'--plan',...requested],{cwd:root,env:process.env,stdout:'pipe',stderr:'inherit'});
+const planPath=join(root,'.generated/render-plan.json');
+const planArg=`--plan-file=${planPath}`;
+const planner=Bun.spawn([...nodeArgs,'--plan',planArg,...requested],{cwd:root,env:rendererEnv,stdout:'pipe',stderr:'inherit'});
 const planned=await new Response(planner.stdout).text();
 if(await planner.exited)throw new Error('SSR planning failed');
 const routes:string[]=JSON.parse(planned);
+if(!routes.length)process.exit(0);
 const batchSize=Number(process.env.NIFT_SSR_WORKER_SIZE??128);
 if(!Number.isInteger(batchSize)||batchSize<1)throw new Error('Invalid SSR worker size');
 const concurrency=Number(process.env.NIFT_SSR_CONCURRENCY??2);
@@ -32,7 +37,7 @@ async function consume(){
  while(!failed && cursor<routes.length){
   const offset=cursor;cursor+=batchSize;
   const selected=routes.slice(offset,offset+batchSize);
-  const worker=Bun.spawn([...nodeArgs,...selected],{cwd:root,env:process.env,stdout:'inherit',stderr:'inherit'});
+  const worker=Bun.spawn([...nodeArgs,planArg,...selected],{cwd:root,env:rendererEnv,stdout:'inherit',stderr:'inherit'});
   active.add(worker);
   const code=await worker.exited;active.delete(worker);
   if(code){failed=true;for(const child of active)child.kill();await Promise.allSettled([...active].map(child=>child.exited));throw new Error('SSR worker failed');}
@@ -41,5 +46,5 @@ async function consume(){
  }
 }
 await Promise.all(Array.from({length:Math.min(concurrency,Math.ceil(routes.length/batchSize))},consume));
-const finalize=Bun.spawn([...nodeArgs,'--finalize'],{cwd:root,env:process.env,stdout:'inherit',stderr:'inherit'});
+const finalize=Bun.spawn([...nodeArgs,'--finalize',planArg],{cwd:root,env:rendererEnv,stdout:'inherit',stderr:'inherit'});
 process.exit(await finalize.exited);

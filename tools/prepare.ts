@@ -1,3 +1,4 @@
+import { metadataIndexReady } from './emit-metadata-index';
 /** Prepare explicit, reusable inputs; Nift remains the publication composer. */
 import { readFile, writeFile, mkdir, readdir, copyFile, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -10,7 +11,7 @@ const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).
 const readJson = async (path: string, fallback: any) => JSON.parse(await readFile(path, 'utf8').catch(() => JSON.stringify(fallback)));
 const statePath = join(generated, 'pipeline-state.json');
 const state = await readJson(statePath, {});
-const env = { ...process.env, RAYON_NUM_THREADS: process.env.RAYON_NUM_THREADS ?? '4', NODE_OPTIONS: process.env.NODE_OPTIONS ?? '--max-old-space-size=512', VITE_DOCS_REGION: process.env.VITE_DOCS_REGION ?? 'global', SITE_URL: process.env.SITE_URL ?? 'https://docs.agora.io', VITE_SEARCH_RANKING_V2: process.env.VITE_SEARCH_RANKING_V2 ?? 'true', TSS_STATIC_PRERENDER: 'true', VITE_TSS_SPA_STATIC_EXPERIMENT: 'true', NIFT_SEPARATE_CONTENT: 'true', NIFT_CONTENT_ROOT: join(app, 'public'), TSS_CLIENT_OUTPUT_DIR: join(app, 'public'), DOCS_DEV_SCOPE: '', TSS_PRERENDER_PATHS: '' };
+const env = { ...process.env, RAYON_NUM_THREADS: process.env.RAYON_NUM_THREADS ?? '4', NODE_OPTIONS: process.env.NODE_OPTIONS ?? '--max-old-space-size=512', VITE_DOCS_REGION: process.env.VITE_DOCS_REGION ?? 'global', SITE_URL: process.env.SITE_URL ?? 'https://docs.agora.io', VITE_SITE_URL: process.env.SITE_URL ?? 'https://docs.agora.io', VITE_SEARCH_RANKING_V2: process.env.VITE_SEARCH_RANKING_V2 ?? 'true', TSS_STATIC_PRERENDER: 'true', VITE_TSS_SPA_STATIC_EXPERIMENT: 'true', NIFT_SEPARATE_CONTENT: 'true', NIFT_CONTENT_ROOT: join(app, 'public'), TSS_CLIENT_OUTPUT_DIR: join(app, 'public'), DOCS_DEV_SCOPE: '', TSS_PRERENDER_PATHS: '' };
 if (env.VITE_DOCS_REGION === 'cn' && !process.env.SITE_URL) throw new Error('CN publication requires its explicit SITE_URL');
 const bun = process.execPath;
 const force = process.argv.includes('--all');
@@ -34,10 +35,30 @@ async function signature(paths: string[]) {
   return h.digest('hex');
 }
 const sourceFiles = [...await files(join(app,'content')), join(app,'source.config.ts'), join(app,'bun.lock'), ...await files(join(root,'tools'))].filter(p => !p.endsWith('.pyc'));
-const contentSignature = await signature(sourceFiles);
+// Local image bytes participate in compilation (e.g. SVG dimensions).
+// Retain the discovered dependency graph instead of hashing generated public files.
+async function imageDependencySignature(){
+ const compilerState=await readJson(join(generated,'content-compiler/state.json'),{});
+ const imageInputs=[...new Set(Object.values({...compilerState.documents,...compilerState.includeRecords}).flatMap((entry:any)=>entry.assets??[]))] as string[];
+ const imageHash=createHash('sha256');
+ const compilerReport=await readJson(join(generated,'content-compiler/last-run.json'),{});
+ for(const relativeInput of (compilerReport.configDependencies??[]).sort()){
+  const input=resolve(app,relativeInput);
+  if(!input.startsWith(app+'/'))throw new Error(`Compiler configuration dependency outside app: ${input}`);
+  imageHash.update(relativeInput);imageHash.update(await readFile(input));
+ }
+ for(const input of imageInputs.sort()){
+  if(!input.startsWith(app+'/'))throw new Error(`Local image outside maintained app: ${input}`);
+  imageHash.update(relative(root,input));
+  try{imageHash.update(await readFile(input));}catch(error:any){if(error.code!=='ENOENT')throw error;imageHash.update('missing');}
+ }
+ return imageHash.digest('hex');
+}
+const sourceSignature=await signature(sourceFiles);
+let contentSignature=hash(sourceSignature+await imageDependencySignature());
 const manifestPath = join(app,'public/__nift/content-manifest.json');
-let contentChanged = contentSignature !== state.contentSignature || !await Bun.file(manifestPath).exists();
-if (contentChanged) await run('content', ['tools/compile-corpus.ts']);
+let contentChanged = contentSignature !== state.contentSignature || !await Bun.file(manifestPath).exists() || !await metadataIndexReady(join(app,'public/__nift'));
+if (contentChanged) { await run('content', ['tools/compile-corpus.ts']); contentSignature=hash(sourceSignature+await imageDependencySignature()); }
 const appFiles = [...await files(join(app,'src')), join(app,'vite.config.ts'), join(app,'tsconfig.json'), join(app,'package.json'), join(app,'bun.lock')].filter(p => !/\.(test|spec)\.[^.]+$/.test(p) && !p.endsWith('routeTree.gen.ts') && !p.includes('/src/test/'));
 const envSignature = hash(JSON.stringify(Object.entries(env).filter(([key]) => key.startsWith('VITE_') || key === 'SITE_URL').sort()));
 const appSignature = hash(await signature(appFiles) + envSignature);

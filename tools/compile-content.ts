@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { emitMetadataIndex } from './emit-metadata-index';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const app = path.join(root, 'app');
@@ -16,17 +17,19 @@ const requested = only < 0 ? null : args.slice(only + 1).flatMap((s) => s.split(
 const force = args.includes('--force');
 const planOnly = args.includes('--plan');
 const finalizeOnly = args.includes('--finalize');
+const metadataPatch = args.includes('--metadata-patch');
+const patchDir = path.join(cacheDir, 'metadata-patches');
 process.chdir(app);
 const fromApp = async (specifier: string) => import(Bun.resolveSync(specifier, app));
-const { createMdxPlugin } = await fromApp('fumadocs-mdx/bun');
-const { unified } = await fromApp('unified');
-const { default: remarkParse } = await fromApp('remark-parse');
-const { default: remarkMdx } = await fromApp('remark-mdx');
-const { default: remarkDirective } = await fromApp('remark-directive');
-const { parse: parseJs } = await fromApp('acorn');
-const jsxRuntime = await fromApp('react/jsx-runtime');
-const parser = unified().use(remarkParse).use(remarkMdx).use(remarkDirective);
-const markdownParser = unified().use(remarkParse).use(remarkDirective);
+let parser: any, markdownParser: any;
+async function initializeParsers() {
+  if (parser) return;
+  const [{ unified }, { default: remarkParse }, { default: remarkMdx }, { default: remarkDirective }] = await Promise.all([
+    fromApp('unified'), fromApp('remark-parse'), fromApp('remark-mdx'), fromApp('remark-directive'),
+  ]);
+  parser = unified().use(remarkParse).use(remarkMdx).use(remarkDirective);
+  markdownParser = unified().use(remarkParse).use(remarkDirective);
+}
 const hash = (s: string | Uint8Array) => createHash('sha256').update(s).digest('hex');
 const slash = (s: string) => s.split(path.sep).join('/');
 async function exists(p: string) { return fs.access(p).then(() => true, () => false); }
@@ -40,7 +43,8 @@ async function walk(dir: string): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   return (await Promise.all(entries.map((e) => e.isDirectory() ? walk(path.join(dir, e.name)) : /\.mdx?$/.test(e.name) ? [path.join(dir, e.name)] : []))).flat().sort();
 }
-function sourceInfo(file: string, source: string): { imports: string[]; includes: string[]; assets: string[] } {
+async function sourceInfo(file: string, source: string): Promise<{ imports: string[]; includes: string[]; assets: string[] }> {
+  await initializeParsers();
   const tree = (file.endsWith('.mdx') ? parser : markdownParser).parse(source);
   const imports = tree.children.filter((n: any) => n.type === 'mdxjsEsm').flatMap((n: any) =>
     (n.data?.estree?.body ?? []).filter((s: any) => s.source).map((s: any) => s.source.value));
@@ -84,7 +88,12 @@ const statePath = path.join(cacheDir, 'state.json');
 const state = await json(statePath, { version: 1, documents: {} });
 state.includeRecords ??= {};
 const manifest = await json(path.join(publicRoot, 'content-manifest.json'), {});
-const metadata = await json(path.join(cacheDir, 'metadata.json'), {});
+const metadata = metadataPatch ? {} : await json(path.join(cacheDir, 'metadata.json'), {});
+if (!metadataPatch && !planOnly) {
+  for (const file of (await fs.readdir(patchDir).catch(() => [])).sort()) {
+    if (file.endsWith('.json')) Object.assign(metadata, JSON.parse(await fs.readFile(path.join(patchDir, file), 'utf8')));
+  }
+}
 const paths = requested ? requested.filter((s) => !s.startsWith('--')).map((s) => path.resolve(docs, s.replace(/^content\/docs\//, ''))) : await walk(docs);
 const encode = (v: any) => JSON.stringify(Object.fromEntries(Object.entries(v).sort()), null, 2) + '\n';
 if (finalizeOnly) {
@@ -95,8 +104,10 @@ if (finalizeOnly) {
   await writeChanged(path.join(publicRoot, 'content-manifest.json'), encode(manifest));
   await writeChanged(path.join(cacheDir, 'metadata.json'), encode(metadata));
   await writeChanged(path.join(publicRoot, 'content-metadata.json'), encode(metadata));
+  await emitMetadataIndex(publicRoot, metadata);
   await writeChanged(statePath, JSON.stringify(state, null, 2) + '\n');
   console.log(JSON.stringify({ finalized: true, selected: current.size, deleted: [...deleted].sort() }));
+  await fs.rm(patchDir, { recursive: true, force: true });
   process.exit(0);
 }
 const selected = new Map<string, { source: string; imports: string[]; includes: string[]; assets: string[]; dependencies: string[]; fingerprint?: string }>();
@@ -113,7 +124,7 @@ async function includeHash(file: string, stack: string[] = []): Promise<string> 
   if (!file.startsWith(app + path.sep)) throw new Error(`Include outside maintained app: ${file}`);
   const source = await fs.readFile(file, 'utf8'); const sourceHash = hash(source); const key = slash(path.relative(app, file));
   const old = state.includeRecords[key];
-  const info = old?.sourceHash === sourceHash && old.assets ? old : /\.mdx?$/.test(file) ? sourceInfo(file, source) : { includes: [], assets: [] };
+  const info = old?.sourceHash === sourceHash && old.assets ? old : /\.mdx?$/.test(file) ? await sourceInfo(file, source) : { includes: [], assets: [] };
   const { includes, assets } = info;
   state.includeRecords[key] = { sourceHash, includes, assets };
   const value = hash(sourceHash + (await Promise.all(includes.map((p: string) => includeHash(p, [...stack, file])))).join('') + (await Promise.all(assets.map(assetHash))).join(''));
@@ -126,7 +137,7 @@ async function select(file: string) {
   const key = slash(path.relative(docs, file));
   const previous = state.documents[key];
   const old = previous?.sourceHash === hash(source) ? previous : state.analysisRecords?.[key];
-  const info = old?.sourceHash === hash(source) && old.includes && old.assets ? old : sourceInfo(file, source);
+  const info = old?.sourceHash === hash(source) && old.includes && old.assets ? old : await sourceInfo(file, source);
   const { imports, includes, assets } = info;
   const item = { source, imports, includes, assets, dependencies: [] as string[], fingerprint: '' }; selected.set(file, item);
   for (const include of includes) await includeHash(include);
@@ -144,7 +155,7 @@ function fingerprint(file: string, stack: string[] = []): string {
 }
 const dirty = [...selected].filter(([file]) => {
   const key = slash(path.relative(docs, file)); const old = state.documents[key];
-  return force || old?.fingerprint !== fingerprint(file) || !old?.module || manifest[key] !== old.module || !metadata[key];
+  return force || old?.fingerprint !== fingerprint(file) || !old?.module || manifest[key] !== old.module || (!metadataPatch && !metadata[key]);
 }).map(([file]) => file);
 // Missing generated modules must also be regenerated after a clean application-state reset.
 for (const file of selected.keys()) {
@@ -160,6 +171,8 @@ if (planOnly) {
   console.log(JSON.stringify({ selected: selected.size, dirty: dirty.map((file) => slash(path.relative(docs, file))), cached: selected.size - dirty.length, configHash, deleted: requested ? [] : Object.keys(state.documents).filter((key) => !current.has(key)).sort() }));
   process.exit(0);
 }
+const { parse: parseJs } = await fromApp('acorn');
+const jsxRuntime = await fromApp('react/jsx-runtime');
 const bridges: Record<string, { name: string; namespace: string }> = {
   react: { name: 'react', namespace: 'react' },
   'react/jsx-runtime': { name: 'jsx', namespace: 'jsx' },
@@ -234,6 +247,7 @@ const batchSize = Number(process.env.NIFT_CONTENT_BATCH_SIZE ?? 16);
 if (!Number.isInteger(batchSize) || batchSize < 1) throw new Error('NIFT_CONTENT_BATCH_SIZE must be a positive integer');
 let batches = 0;
 if (dirty.length) {
+  const { createMdxPlugin } = await fromApp('fumadocs-mdx/bun');
   const official = createMdxPlugin({ configPath: path.join(app, 'source.config.ts'), outDir: path.join(cacheDir, 'fumadocs'), disableMetaFile: true });
   const hooks: { options: any; callback: any }[] = [];
   const plugin = { ...official, async setup(build: any) {
@@ -282,8 +296,14 @@ if (!requested) {
   for (const key of Object.keys(state.documents)) if (!current.has(key)) { delete state.documents[key]; delete manifest[key]; delete metadata[key]; }
 }
 await writeChanged(path.join(publicRoot, 'content-manifest.json'), encode(manifest));
-await writeChanged(path.join(cacheDir, 'metadata.json'), encode(metadata));
-await writeChanged(path.join(publicRoot, 'content-metadata.json'), encode(metadata));
+if (metadataPatch) {
+  await writeChanged(path.join(patchDir, `${Date.now()}-${process.pid}.json`), encode(metadata));
+} else {
+  await writeChanged(path.join(cacheDir, 'metadata.json'), encode(metadata));
+  await writeChanged(path.join(publicRoot, 'content-metadata.json'), encode(metadata));
+  await emitMetadataIndex(publicRoot, metadata);
+}
 await writeChanged(statePath, JSON.stringify(state, null, 2) + '\n');
+if (!metadataPatch) await fs.rm(patchDir, { recursive: true, force: true });
 await writeChanged(path.join(cacheDir, 'last-run.json'), JSON.stringify({ selected: selected.size, compiled: dirty.length, cached: selected.size - dirty.length, batches, batchSize, configHash, configDependencies: [...configDependencies.keys()].map((p) => slash(path.relative(app, p))), runtimeNamespaces: [...bridgeExports.keys()].map((s) => bridges[s].namespace) }, null, 2) + '\n');
 console.log(JSON.stringify({ selected: selected.size, compiled: dirty.length, cached: selected.size - dirty.length, manifest: path.join(publicRoot, 'content-manifest.json'), metadata: path.join(cacheDir, 'metadata.json') }));

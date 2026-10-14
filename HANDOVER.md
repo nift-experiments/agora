@@ -333,3 +333,7 @@ Fresh-clone asset correction (2026-10-15): anchored the root output ignore rule 
 ## Final implementation checkpoint
 
 Global clean-clone corpus gates pass; see investigation/STATUS.md for current certification and explicit remaining qualifications. Earlier pending notes are historical. The payload updater loads expensive worker/source modules only for dirty conversion or fallback. All performance evidence remains outside the public source repository. No Labs publication is authorized.
+
+## Optimization/certification checkpoint in progress
+
+SSR workers use production React and a shared immutable route plan; default bounded lifetimes remain 128 routes/two workers/384 MiB heaps. Compact frontmatter plus lazy per-document metadata avoids retaining the full projection catalog in every SSR worker. Full catalog remains the projection contract, and derived metadata files stay server-only. Asset-copy metadata shortcuts validate both source and destination; changed/missing outputs are repaired. Authored compiler uses bounded metadata deltas merged once, lazy initialization, and explicit image/configuration dependencies. Separate CN builds propagate the configured SITE_URL as browser VITE_SITE_URL too. Focused region/search/platform/hosting tests pass; full local integrations pass, and new clean-clone measurements remain pending acceptance. No benchmark numbers are published here.

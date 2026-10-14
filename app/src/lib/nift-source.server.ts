@@ -10,7 +10,28 @@ import { PINNED_DYNAMIC_PROJECTION_FALLBACKS } from './nift-projection-fallbacks
 
 const root = process.env.NIFT_CONTENT_ROOT ?? resolve(process.cwd(), 'public');
 const sourceRoot = resolve(process.cwd(), 'content/docs');
-const metadata = JSON.parse(await readFile(join(root, '__nift/content-metadata.json'), 'utf8'));
+// Navigation requires only frontmatter. Full article projections are loaded
+// lazily so each bounded SSR worker does not retain the whole text corpus.
+let metadata: Record<string, any>;
+try {
+  metadata = JSON.parse(await readFile(join(root, '__nift/content-heads.json'), 'utf8'));
+} catch (error: any) {
+  if (error.code !== 'ENOENT') throw error;
+  const legacy = JSON.parse(await readFile(join(root, '__nift/content-metadata.json'), 'utf8'));
+  metadata = Object.fromEntries(Object.entries(legacy).map(([key, value]: [string, any]) => [key, { frontmatter: value.frontmatter, embedded: value }]));
+}
+const articleMetadata = new Map<string, Promise<any>>();
+function loadMetadata(path: string, entry: any) {
+  if (entry.embedded) return Promise.resolve(entry.embedded);
+  const url = entry.metadataUrl;
+  if (typeof url !== 'string' || !url.startsWith('/__nift/metadata/') || url.includes('..') || url.includes('\\')) throw new Error(`Invalid article metadata URL: ${path}`);
+  let pending = articleMetadata.get(path);
+  if (!pending) {
+    pending = readFile(join(root, url.slice(1)), 'utf8').then(JSON.parse);
+    articleMetadata.set(path, pending);
+  }
+  return pending;
+}
 const manifest: Record<string, string> = JSON.parse(await readFile(join(root, '__nift/content-manifest.json'), 'utf8'));
 const head: Record<string, () => unknown> = {};
 const body: Record<string, () => Promise<any>> = {};
@@ -20,7 +41,7 @@ for (const [path, value] of Object.entries(metadata) as [string, any][]) {
   // Metadata consumers do not execute or bundle the React article module.
   // Rendering still delegates to the very same independently compiled module.
   body[path] = async () => ({
-    ...value,
+    ...await loadMetadata(path, value),
     default: function CompiledArticle(props: any) {
       const runtime = (globalThis as any).__NIFT_RUNTIME;
       if (!runtime) throw new Error('Article runtime was not initialized');

@@ -18,7 +18,12 @@ const statePath = join(project, '.generated/payload-update-state.json');
 const fragmentsPath = join(project, '.generated/payload-llm-fragments.json');
 const publicRoot = join(app, 'public');
 const readJson = async (path: string) => JSON.parse(await readFile(path, 'utf8'));
-const metadata = await readJson(join(publicRoot, '__nift/content-metadata.json'));
+// Dependency guards need only frontmatter; body projections belong to the
+// lazy source adapter, not a second eagerly retained full catalog.
+const metadata = await readJson(join(publicRoot, '__nift/content-heads.json')).catch(error => {
+  if (error.code !== 'ENOENT') throw error;
+  return readJson(join(publicRoot, '__nift/content-metadata.json'));
+});
 const manifest = await readJson(join(publicRoot, '__nift/content-manifest.json'));
 
 async function walk(dir: string): Promise<string[]> {

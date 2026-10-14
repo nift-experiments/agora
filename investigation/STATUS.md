@@ -22,3 +22,9 @@ Reviewed local Capgo/Docker implementation and Deno/SpaceX report sources, plus 
 The small serialized campaign is preserved privately, including superseded incomplete-scope observations and the corrected capture. No additional upstream builds or prior-experiment benchmarks were run. No Nift core, Labs or previous migration source was modified. No announcement or maintainer contact is authorized.
 
 Root commands: `bun run install:app`, `bun run build`, `bun run build:full`, `bun run serve`. Root `public/` is the publication. Follow README/HANDOVER and preserve the explicit editorial-date workflow.
+
+## Continued optimization — current task
+
+The earlier global checkpoint was reopened under user direction. Production SSR/shared plans, lazy article metadata, bounded compiler metadata deltas and asset-copy caching are implemented; focused correctness gates pass. The CN server/browser origin mismatch is corrected and verified in an isolated localhost Start fixture with Chinese hydration/search/navigation. HTTP hosting-rule cases pass locally; this does not constitute provider deployment certification. Full optimized source integrations and reference reconciliation pass: all 2,017 HTML reference paths and 3,100 non-HTML non-bundle paths remain present; all 1,657 cross-model module bytes match. Independent clean-clone measurement acceptance remains pending.
+
+Compact-metadata integration caught and repaired an agent getter regression before acceptance. Its maintained raw/processed getters now load per-document records instead of compact heads; real-corpus regression and full-corpus projection checks pass. Earlier incomplete-scope integration measurements remain private rejected diagnostics. Focused regional/search/platform/hosting checks pass (101 tests in each model), with inherited unrelated failures still qualified.
