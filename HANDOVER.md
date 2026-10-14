@@ -327,3 +327,5 @@ Immutable app/src/generated/docs-last-updated-manifest.ts preserves upstream Git
 Keep source-model, CDN/external Algolia, local Orama fallback and separate CN production scope explicit. The global default build does not prove complete CN publication. Do not perform private service/index mutations without their required authorization.
 
 No Nift core or Labs changes. Raw logs/screenshots/benchmarks/reference output stay outside source repos. Finish parity/lifecycle/fresh-clone checks and serialized complete-pipeline measurements with aggregate process-tree RSS before checkpoint closeout. No final benchmark or completion claim is approved yet.
+
+Fresh-clone asset correction (2026-10-15): anchored the root output ignore rule (`/public/`) so maintained `app/public` files remain source inputs. All 18 newly tracked static files match pinned upstream bytes. Corrected clean-clone certification is pending; previous incomplete-scope captures remain private diagnostic evidence.

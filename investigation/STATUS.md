@@ -26,3 +26,5 @@ Authored incremental/full payload equivalence compared 3,066 unique derived outp
 TypeScript passes in both models. Focused loader/direct-render checks pass except one stale IoT route assertion also failing in pinned source. The full authored unit run exposed inherited source/dependency/environment failures, recorded in external certification evidence rather than hidden by changing pinned content. Metadata access across all 1,657 entries does not initialize article runtime.
 
 Fresh-checkout reproduction, final publication accounting, representative browser certification and the small final measurement set remain pending. No completion or public performance claim is made by this checkpoint.
+
+Fresh-clone asset correction (2026-10-15): anchored the root output ignore rule (`/public/`) so maintained `app/public` files remain source inputs. All 18 newly tracked static files match pinned upstream bytes. Corrected clean-clone certification is pending; previous incomplete-scope captures remain private diagnostic evidence.

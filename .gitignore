@@ -18,7 +18,7 @@ app/public/llms.txt
 app/public/llms-full.txt
 app/public/sitemap.xml
 .cache/
-public/
+/public/
 content/generated/
 
 .generated/
