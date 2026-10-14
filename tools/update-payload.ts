@@ -25,6 +25,15 @@ const metadata = await readJson(join(publicRoot, '__nift/content-heads.json')).c
   return readJson(join(publicRoot, '__nift/content-metadata.json'));
 });
 const manifest = await readJson(join(publicRoot, '__nift/content-manifest.json'));
+// Raw search reads maintained source bytes, including YAML comments which
+// disappear from the compiled React module. Track that contract separately.
+const compilerState = await readJson(join(project, '.generated/content-compiler/state.json'));
+const sourceHashes: Record<string, string> = {};
+for (const path of Object.keys(manifest)) {
+  const sourceHash = compilerState.documents?.[path]?.sourceHash;
+  if (typeof sourceHash !== 'string') throw new Error(`Missing compiled source hash: ${path}`);
+  sourceHashes[path] = sourceHash;
+}
 
 async function walk(dir: string): Promise<string[]> {
   return (await Promise.all((await readdir(dir, { withFileTypes: true })).map(e => e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]))).flat().sort();
@@ -53,7 +62,7 @@ async function seed() {
     throw new Error('Cannot seed payload cache: fragments do not match the current compiled manifest');
   }
   await mkdir(dirname(statePath), { recursive: true });
-  await writeFile(statePath, JSON.stringify({ signature, manifest, frontmatter: Object.fromEntries(Object.entries(metadata).map(([p, v]: [string, any]) => [p, v.frontmatter])) }));
+  await writeFile(statePath, JSON.stringify({ signature, manifest, sourceHashes, frontmatter: Object.fromEntries(Object.entries(metadata).map(([p, v]: [string, any]) => [p, v.frontmatter])) }));
 }
 if (process.argv.includes('--seed')) { await seed(); console.log('[payload-update] seeded derived dependency state'); process.exit(0); }
 const loadWorker = () => import('../app/scripts/generate-static-docs-payload.worker.mjs');
@@ -64,13 +73,13 @@ async function fallback(reason: string) {
   await seed();
 }
 const previous = await readJson(statePath).catch(() => null);
-if (!previous || previous.signature !== signature) { await fallback('missing cache or structural source change'); process.exit(0); }
+if (!previous || !previous.sourceHashes || previous.signature !== signature) { await fallback('missing cache or structural source change'); process.exit(0); }
 const keys = Object.keys(metadata).sort();
 if (JSON.stringify(keys) !== JSON.stringify(Object.keys(previous.frontmatter).sort()) || keys.some(p => JSON.stringify(metadata[p].frontmatter) !== JSON.stringify(previous.frontmatter[p]))) {
   await fallback('source inventory/frontmatter change'); process.exit(0);
 }
-const changed = keys.filter(p => manifest[p] !== previous.manifest[p]);
-if (!changed.length) { console.log('[payload-update] no changed compiled modules'); process.exit(0); }
+const changed = keys.filter(p => manifest[p] !== previous.manifest[p] || sourceHashes[p] !== previous.sourceHashes[p]);
+if (!changed.length) { console.log('[payload-update] no changed compiled modules or maintained sources'); process.exit(0); }
 const worker = await loadWorker();
 const { source } = await import('../app/src/lib/source.server');
 const { loadDocsPagePayload } = await import('../app/src/lib/docs-page.server');
