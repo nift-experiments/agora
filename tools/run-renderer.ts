@@ -12,7 +12,7 @@ source=source.replace("const root = resolve(import.meta.dir, '..');", "const roo
 source=source.replace("!await Bun.file(join(output,page.url.slice(1),'index.html')).exists()", "!await access(join(output,page.url.slice(1),'index.html')).then(()=>true,()=>false)");
 const renderer=new Bun.Transpiler({loader:'ts',target:'node'}).transformSync(source);
 await writeChanged(join(root,'.generated/render-routes.mjs'),renderer);
-const nodeArgs=['node','--max-old-space-size=512',join(root,'.generated/render-routes.mjs')];
+const nodeArgs=['node','--max-old-space-size=384',join(root,'.generated/render-routes.mjs')];
 const requested=process.argv.slice(2);
 if(requested.some(arg=>arg.startsWith('/'))){
  const worker=Bun.spawn([...nodeArgs,...requested],{cwd:root,env:process.env,stdout:'inherit',stderr:'inherit'});
@@ -22,13 +22,24 @@ const planner=Bun.spawn([...nodeArgs,'--plan',...requested],{cwd:root,env:proces
 const planned=await new Response(planner.stdout).text();
 if(await planner.exited)throw new Error('SSR planning failed');
 const routes:string[]=JSON.parse(planned);
-const batchSize=Number(process.env.NIFT_SSR_WORKER_SIZE??256);
+const batchSize=Number(process.env.NIFT_SSR_WORKER_SIZE??128);
 if(!Number.isInteger(batchSize)||batchSize<1)throw new Error('Invalid SSR worker size');
-for(let offset=0;offset<routes.length;offset+=batchSize){
- const selected=routes.slice(offset,offset+batchSize);
- const worker=Bun.spawn([...nodeArgs,...selected],{cwd:root,env:process.env,stdout:'inherit',stderr:'inherit'});
- if(await worker.exited)throw new Error('SSR worker failed');
- console.log(`[SSR] ${Math.min(offset+batchSize,routes.length)}/${routes.length} completed`);
+const concurrency=Number(process.env.NIFT_SSR_CONCURRENCY??2);
+if(!Number.isInteger(concurrency)||concurrency<1)throw new Error('Invalid SSR concurrency');
+let cursor=0,completed=0,failed=false;
+const active=new Set<ReturnType<typeof Bun.spawn>>();
+async function consume(){
+ while(!failed && cursor<routes.length){
+  const offset=cursor;cursor+=batchSize;
+  const selected=routes.slice(offset,offset+batchSize);
+  const worker=Bun.spawn([...nodeArgs,...selected],{cwd:root,env:process.env,stdout:'inherit',stderr:'inherit'});
+  active.add(worker);
+  const code=await worker.exited;active.delete(worker);
+  if(code){failed=true;for(const child of active)child.kill();await Promise.allSettled([...active].map(child=>child.exited));throw new Error('SSR worker failed');}
+  completed+=selected.length;
+  console.log(`[SSR] ${completed}/${routes.length} completed`);
+ }
 }
+await Promise.all(Array.from({length:Math.min(concurrency,Math.ceil(routes.length/batchSize))},consume));
 const finalize=Bun.spawn([...nodeArgs,'--finalize'],{cwd:root,env:process.env,stdout:'inherit',stderr:'inherit'});
 process.exit(await finalize.exited);
